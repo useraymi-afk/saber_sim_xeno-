@@ -1,0 +1,2926 @@
+-- ============================================
+-- SERVICES & VARIABLES
+-- ============================================
+local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
+
+-- ============================================
+-- ANTI-AFK & GAME LOAD WAIT (PC FIX)
+-- ============================================
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+if not lp.Character then
+    lp.CharacterAdded:Wait()
+end
+
+task.wait(1)
+
+local DEBUG = true
+local function qprint(...)
+    if DEBUG then
+        print("[AUTO QUEST]", ...)
+    end
+end
+local function qwarn(...)
+    warn("[AUTO QUEST]", ...)
+end
+
+getgenv().currentFarmingElement = nil
+
+-- ============================================
+-- GLOBAL HIT SPOOF (DUNGEON ENEMY FIX)
+-- ============================================
+getgenv().globalHitSpoof = false
+
+pcall(function()
+    local HitDetection = require(
+        Players.LocalPlayer.PlayerScripts.MainClient.ClientTool.HitDetection
+    )
+    if not getgenv().oldGetHits then
+        getgenv().oldGetHits =
+            HitDetection.GetBossesAndMobsHit
+    end
+    local oldGetHits = getgenv().oldGetHits
+    HitDetection.GetBossesAndMobsHit = function(self, player)
+        if getgenv().globalHitSpoof then
+            local hitAll = {}
+            local seen = {}
+
+            for _, tag in ipairs({
+                "Boss",
+                "EventBoss",
+                "Mob",
+                "DungeonEnemy"
+            }) do
+                local tagged =
+                    CollectionService:GetTagged(tag)
+                for _, mob in ipairs(tagged) do
+
+                    if mob
+                        and mob.Parent
+                        and not seen[mob]
+                    then
+                        local healthAttr =
+                            mob:GetAttribute("Health")
+                        local hrp =
+                            mob:FindFirstChild("HumanoidRootPart")
+                        if hrp and (
+                            not healthAttr
+                            or healthAttr > 0
+                        ) then
+                            seen[mob] = true
+                            table.insert(hitAll, mob)
+                        end
+                    end
+                end
+            end
+            if #hitAll == 0 then
+            end
+            return hitAll
+        else
+            return oldGetHits(self, player)
+        end
+    end
+end)
+
+-- ============================================
+-- ALL FUNCTIONS
+-- ============================================
+
+function removeIdleConnections()
+    if getconnections then
+        local connections = getconnections(Players.LocalPlayer.Idled)
+        for _, connection in pairs(connections or {}) do
+            if connection.Disable then
+                connection:Disable(connection)
+            elseif connection.Disconnect then
+                connection:Disconnect(connection)
+            end
+        end
+    end
+    if not getconnections then
+        local virtualUser = cloneref(game:GetService("VirtualUser"))
+        Players.LocalPlayer.Idled:Connect(function()
+            virtualUser:CaptureController()
+            virtualUser:ClickButton2(virtualUser)
+        end)
+    end
+end
+
+function movementAntiAFK()
+    spawn(function()
+        while getgenv().MovementAntiAFK and task do
+            Players.LocalPlayer.PlayerScripts.AutoTimeout.Disabled = true
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.W, false, nil)
+            task.wait(0.0001)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, nil)
+            task.wait(900)
+        end
+    end)
+end
+
+function simulateMovement()
+    spawn(function()
+        while getgenv().SimulateMovement and task do
+            if Players.LocalPlayer.Character then
+                local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if charRoot then
+                    local direction = getgenv().AntiAFKDirection or "Front then Back"
+                    if direction == "Front then Back" then
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, -0.5)
+                        task.wait(0.1)
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, 0.5)
+                    elseif direction == "Back then Front" then
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, 0.5)
+                        task.wait(0.1)
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, -0.5)
+                    elseif direction == "Left then Right" then
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(-0.5, 0, 0)
+                        task.wait(0.1)
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0.5, 0, 0)
+                    elseif direction == "Right then Left" then
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0.5, 0, 0)
+                        task.wait(0.1)
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(-0.5, 0, 0)
+                    end
+                end
+            end
+            task.wait(getgenv().AntiAFKInterval or 60)
+        end
+    end)
+end
+
+function simulateClick()
+    spawn(function()
+        while getgenv().SimulateClick and task do
+            UserInputService:Button1Down(0)
+            task.wait(0.1)
+            UserInputService:Button1Up(0)
+            task.wait(getgenv().AntiAFKInterval or 60)
+        end
+    end)
+end
+
+function simulateJump()
+    spawn(function()
+        while getgenv().SimulateJump and task do
+            if Players.LocalPlayer.Character then
+                local humanoid = Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+            task.wait(getgenv().AntiAFKInterval or 60)
+        end
+    end)
+end
+
+function combinedAntiAFK()
+    spawn(function()
+        local lastActionTime = 0
+        while getgenv().CombinedAntiAFK and task do
+            local currentTime = tick()
+            if currentTime - lastActionTime >= (getgenv().AntiAFKInterval or 60) then
+                lastActionTime = currentTime
+                if getgenv().SimulateClick then
+                    UserInputService:Button1Down(0)
+                    task.wait(0.1)
+                    UserInputService:Button1Up(0)
+                end
+                if getgenv().SimulateMovement and Players.LocalPlayer.Character then
+                    local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if charRoot then
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, -0.5)
+                        task.wait(0.1)
+                        charRoot.CFrame = charRoot.CFrame * CFrame.new(0, 0, 0.5)
+                    end
+                end
+                if getgenv().SimulateJump and Players.LocalPlayer.Character then
+                    local humanoid = Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function getBossData()
+    local gameplay = workspace:FindFirstChild("Gameplay")
+    if not gameplay then return nil, nil end
+    local bossFolder = gameplay:FindFirstChild("Boss")
+    if not bossFolder then return nil, nil end
+    local bossHolder = bossFolder:FindFirstChild("BossHolder")
+    if not bossHolder then return nil, nil end
+    local bossModel = bossHolder:FindFirstChildOfClass("Model")
+    if not bossModel then return nil, nil end
+    local bossRoot = bossModel:FindFirstChild("HumanoidRootPart")
+    local bossController = bossModel:FindFirstChildOfClass("Humanoid") or bossModel:FindFirstChildOfClass("AnimationController")
+    return bossRoot, bossController
+end
+
+function getEventBossData()
+    local gameplay = workspace:FindFirstChild("Gameplay")
+    if not gameplay then return nil, nil end
+
+    local regionsLoaded = gameplay:FindFirstChild("RegionsLoaded")
+    if not regionsLoaded then return nil, nil end
+
+    local summerEvent = regionsLoaded:FindFirstChild("SummerEvent26")
+    if not summerEvent then return nil, nil end
+
+    local bossFolder = summerEvent:FindFirstChild("Boss")
+    if not bossFolder then return nil, nil end
+
+    local bossHolder = bossFolder:FindFirstChild("BossHolder")
+    if not bossHolder then return nil, nil end
+
+    local bossModel = bossHolder:FindFirstChild("Boss")
+    if not bossModel then return nil, nil end
+
+    local bossRoot = bossModel:FindFirstChild("HumanoidRootPart")
+    local bossController =
+        bossModel:FindFirstChildOfClass("Humanoid")
+        or bossModel:FindFirstChildOfClass("AnimationController")
+
+    return bossRoot, bossController
+end
+
+local EggPriorities = {
+    ["SECRET"] = { priority = 4, ids = { "rbxassetid://139781637243765", "rbxassetid://103333899383000" } },
+    ["THREE_MOON"] = { priority = 3, ids = { "rbxassetid://87936750091950", "rbxassetid://108817778982252" } },
+    ["TWO_MOON"] = { priority = 2, ids = { "rbxassetid://83842678544135", "rbxassetid://135133438925164" } },
+    ["ONE_MOON"] = { priority = 1, ids = { "rbxassetid://99262757782431", "rbxassetid://90375810566006" } }
+}
+
+local function GetEggPriority(imageId)
+    for tierName, tierData in pairs(EggPriorities) do
+        for _, id in pairs(tierData.ids) do
+            if imageId == id then
+                return tierData.priority, tierName
+            end
+        end
+    end
+    return 0, "UNKNOWN"
+end
+
+function autoClaimIncubatedPet()
+    task.spawn(function()
+        while getgenv().autoClaimIncubated do
+            pcall(function()
+                local ps = Players.LocalPlayer:FindFirstChild("PlayerScripts")
+                if not ps then return end
+                local dataManager = require(ps.MainClient.ClientDataManager)
+                local dateTimeManager = require(ps.MainClient.DateTimeManager)
+                local hatchery = dataManager.Data and dataManager.Data.DungeonHatchery
+                if not hatchery then return end
+                for slot, data in pairs(hatchery) do
+                    if data and data.HatchDT and dateTimeManager:Now() >= data.HatchDT then
+                        ReplicatedStorage.Events.UIAction:FireServer("HatchDungeonEgg", slot)
+                    end
+                end
+            end)
+            task.wait(1)
+        end
+    end)
+end
+
+function autoJoinDungeon()
+    task.spawn(function()
+        while getgenv().autoJoinDungeon do
+            pcall(function()
+                local lp = Players.LocalPlayer
+                local isInDungeon = false
+                local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                if dungeonStorage then
+                    for _, folder in pairs(dungeonStorage:GetChildren()) do
+                        if #folder:GetChildren() > 0 then
+                            isInDungeon = true
+                            break
+                        end
+                    end
+                end
+                if not isInDungeon then
+                    local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+                    local dateTimeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
+                    local cooldownEnd = dataManager.Data and dataManager.Data.DungeonCooldownEndDT or 0
+                    local currentTime = dateTimeManager:Now()
+                    if currentTime >= cooldownEnd then
+                        local selectedDungeon = getgenv().SelectedDungeon or "Space"
+                        local selectedDifficulty = getgenv().SelectedDifficulty or 1
+                        ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", selectedDungeon, selectedDifficulty)
+                        task.wait(1.5)
+                        ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
+                    end
+                end
+            end)
+            task.wait(3)
+        end
+    end)
+end
+
+function autoFarmDungeon()
+    task.spawn(function()
+        local lp = Players.LocalPlayer
+        local savedCFrame = nil
+        while getgenv().autoFarmDungeon do
+            pcall(function()
+                local char = lp.Character
+                if not char then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not charRoot then return end
+                if not savedCFrame then
+                    savedCFrame = charRoot.CFrame
+                end
+                local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                if not dungeonStorage then return end
+                local closest = nil
+                local dist = math.huge
+                for _, mapFolder in pairs(dungeonStorage:GetChildren()) do
+                    local importantFolder = mapFolder:FindFirstChild("Important")
+                    if importantFolder then
+                        for _, spawner in pairs(importantFolder:GetChildren()) do
+                            if spawner:IsA("BasePart") and spawner.Name:lower():find("spawner") then
+                                for _, mob in pairs(spawner:GetChildren()) do
+                                    if mob:IsA("Model") then
+                                        local hrp = mob:FindFirstChild("HumanoidRootPart")
+                                        if hrp then
+                                            local d = (charRoot.Position - hrp.Position).Magnitude
+                                            if d < dist then
+                                                dist = d
+                                                closest = hrp
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                if closest then
+                    local targetPos = closest.Position + Vector3.new(0, getgenv().DunFarmingDistance or 9, 0)
+                    hum.AutoRotate = false
+                    charRoot.CFrame = CFrame.new(targetPos) * CFrame.Angles(math.rad(-90), 0, 0)
+                    charRoot.AssemblyLinearVelocity = Vector3.zero
+                end
+            end)
+            task.wait()
+        end
+        pcall(function()
+            local char = lp.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hum then
+                hum.AutoRotate = true
+                hum.PlatformStand = false
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            if hrp then
+                hrp.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 5, 0))
+                hrp.AssemblyLinearVelocity = Vector3.zero
+            end
+        end)
+    end)
+end
+
+function autoCollectDungeonRewards()
+    spawn(function()
+        while getgenv().autoDungeonRewards do
+            pcall(function()
+                local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                if dungeonStorage then
+                    for _, mapFolder in pairs(dungeonStorage:GetChildren()) do
+                        for _, desc in pairs(mapFolder:GetDescendants()) do
+                            if desc:IsA("ProximityPrompt") and desc.ActionText == "Claim Rewards" and desc.Enabled then
+                                if Players.LocalPlayer.Character and desc.Parent and desc.Parent:IsA("BasePart") then
+                                    local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                    if charRoot then
+                                        charRoot.CFrame = desc.Parent.CFrame + Vector3.new(0, 5, 0)
+                                        task.wait(0.3)
+                                    end
+                                end
+                                fireproximityprompt(desc)
+                            end
+                        end
+                    end
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
+end
+
+function teleportToChest()
+    pcall(function()
+        local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+        if dungeonStorage then
+            for _, mapFolder in pairs(dungeonStorage:GetChildren()) do
+                for _, desc in pairs(mapFolder:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") and desc.ActionText == "Claim Rewards" and desc.Enabled then
+                        if Players.LocalPlayer.Character and desc.Parent and desc.Parent:IsA("BasePart") then
+                            local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                            if charRoot then
+                                charRoot.CFrame = desc.Parent.CFrame + Vector3.new(0, 5, 0)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function autoIncubateDungeonEgg()
+    task.spawn(function()
+        while getgenv().autoIncubateDungeonEgg do
+            pcall(function()
+                local playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+                if not playerGui then return end
+                local mainGui = playerGui:FindFirstChild("MainGui")
+                if not mainGui then return end
+                local otherFrames = mainGui:FindFirstChild("OtherFrames")
+                if not otherFrames then return end
+                local dungeonRewards = otherFrames:FindFirstChild("DungeonRewards")
+                if dungeonRewards and dungeonRewards.Visible then
+                    for _, img in pairs(dungeonRewards:GetDescendants()) do
+                        if img:IsA("ImageLabel") and img.Image and img.Image:find("rbxassetid") then
+                            local prio = GetEggPriority(img.Image)
+                            if prio > 0 then
+                                getgenv().pendingNewEggPriority = prio
+                                break
+                            end
+                        end
+                    end
+                    local yesBtn = dungeonRewards:FindFirstChild("Frame")
+                        and dungeonRewards.Frame:FindFirstChild("Buttons")
+                        and dungeonRewards.Frame.Buttons:FindFirstChild("Yes")
+                        and dungeonRewards.Frame.Buttons.Yes:FindFirstChild("Button")
+                    if yesBtn then
+                        firesignal(yesBtn.MouseButton1Click)
+                        firesignal(yesBtn.Activated)
+                        task.wait(0.5)
+                    end
+                end
+                local replacePopup = otherFrames:FindFirstChild("EggIncubatorReplacePopup")
+                if replacePopup and replacePopup.Visible then
+                    local newEggPriority = getgenv().pendingNewEggPriority or 0
+                    local worstPriority = math.huge
+                    local worstEggFrame = nil
+                    local itemFrame = replacePopup:FindFirstChild("Frame") and replacePopup.Frame:FindFirstChild("ItemFrame")
+                    if itemFrame then
+                        for _, slot in pairs(itemFrame:GetChildren()) do
+                            if slot:IsA("Frame") and slot:FindFirstChild("ImageLabel") and slot.Visible then
+                                local priority, _ = GetEggPriority(slot.ImageLabel.Image)
+                                local replaceBtn = slot:FindFirstChild("Replace")
+                                if replaceBtn then
+                                    if priority < worstPriority then
+                                        worstPriority = priority
+                                        worstEggFrame = slot
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if worstEggFrame and newEggPriority > worstPriority then
+                        local replaceBtn = worstEggFrame:FindFirstChild("Replace") and worstEggFrame.Replace:FindFirstChild("Button")
+                        if replaceBtn then
+                            firesignal(replaceBtn.MouseButton1Click)
+                            firesignal(replaceBtn.Activated)
+                            task.wait(0.5)
+                            local popupFrame = otherFrames:FindFirstChild("PopupFrame")
+                            if popupFrame and popupFrame.Visible then
+                                local yesBtn = popupFrame:FindFirstChild("Frame") and popupFrame.Frame:FindFirstChild("Buttons") and popupFrame.Frame.Buttons:FindFirstChild("Yes") and popupFrame.Frame.Buttons.Yes:FindFirstChild("Button")
+                                if yesBtn then
+                                    firesignal(yesBtn.MouseButton1Click)
+                                    task.wait(0.5)
+                                end
+                            end
+                        end
+                    else
+                        local cancelBtn = replacePopup:FindFirstChild("Cancel") and replacePopup.Cancel:FindFirstChild("Button")
+                        if cancelBtn then
+                            firesignal(cancelBtn.MouseButton1Click)
+                            firesignal(cancelBtn.Activated)
+                            task.wait(0.5)
+                        else
+                            local closeBtn = replacePopup:FindFirstChild("TopBar") and replacePopup.TopBar:FindFirstChild("CloseButton") and replacePopup.TopBar.CloseButton:FindFirstChild("Button")
+                            if closeBtn then
+                                firesignal(closeBtn.MouseButton1Click)
+                                firesignal(closeBtn.Activated)
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                    getgenv().pendingNewEggPriority = 0
+                end
+            end)
+            local ps = Players.LocalPlayer:FindFirstChild("PlayerScripts")
+            if ps then
+                local dataManager = require(ps.MainClient.ClientDataManager)
+                local hatchery = dataManager.Data and dataManager.Data.DungeonHatchery
+                if hatchery then
+                    for slot, data in pairs(hatchery) do
+                        if data and data.CanIncubate then
+                            ReplicatedStorage.Events.UIAction:FireServer("IncubateDungeonEgg", slot)
+                        end
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+function autoSwing()
+    spawn(function()
+        local clientTool = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientTool)
+        while getgenv().autoSwing and task do
+            if Players.LocalPlayer.Character then
+                local humanoid = Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    local tool = Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                    if tool and tool:FindFirstChild("RemoteClick") then
+                        clientTool:Swing()
+                    end
+                    local backpackTool = Players.LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+                    if tool and backpackTool then
+                        humanoid:EquipTool(backpackTool)
+                    end
+                end
+            end
+            task.wait(0.05)
+        end
+    end)
+end
+
+function autoCollectCrowns()
+    spawn(function()
+        while getgenv().autoCrowns and task do
+            if Players.LocalPlayer.Character then
+                local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if charRoot then
+                    for _, pickup in pairs(workspace.Gameplay.CurrencyPickup.CurrencyHolder:GetChildren()) do
+                        if pickup.Transparency == 0 and pickup.Name == "Crown" then
+                            pickup.CFrame = charRoot.CFrame
+                            pickup.Anchored = true
+                        end
+                    end
+                end
+            end
+            task.wait(0.3)
+        end
+    end)
+end
+
+function autoSellDNA()
+    spawn(function()
+        while getgenv().autoSellDNA and task do
+            ReplicatedStorage.Events.SellStrength:FireServer()
+            task.wait(0.2)
+        end
+    end)
+end
+
+function autoCollectDaily()
+    spawn(function()
+        while getgenv().autoCollectDaily and task do
+            local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+            local hasVIP = table.find(dataManager.Data.Passes, "VIP") ~= nil
+            local dailyGUI = workspace.Gameplay.Locations.DailyReward.BillboardGui
+            if dailyGUI and dailyGUI.Frame and dailyGUI.Frame.Desc and dailyGUI.Frame.Desc.Text then
+                local descText = dailyGUI.Frame.Desc.Text
+                if not (descText:match("%d+[hH]") or descText:match("%d+[mM]") or descText:match("%d+[sS]") or descText:match("%d+:%d+") or descText:match("%d+:%d+:%d+")) then
+                    ReplicatedStorage.Events.UIAction:FireServer("ClaimDailyReward")
+                    ReplicatedStorage.Events.UIAction:FireServer("ClaimDailyTimedReward")
+                    if hasVIP then
+                        ReplicatedStorage.Events.UIAction:FireServer("ClaimVIPDailyReward")
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+function autoTeleportToBoss()
+    task.spawn(function()
+        while getgenv().autoTeleportToBoss do
+            pcall(function()
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not charRoot or not humanoid then return end
+                local bossRoot = getBossData()
+                if bossRoot then
+                    local newCFrame = CFrame.new(
+                        bossRoot.Position.X,
+                        bossRoot.Position.Y - bossRoot.Size.Y / 2 + humanoid.HipHeight + charRoot.Size.Y / 2 + 0.1,
+                        bossRoot.Position.Z
+                    )
+                    charRoot.CFrame = newCFrame
+                    humanoid:MoveTo(bossRoot.Position)
+                end
+            end)
+            task.wait()
+        end
+    end)
+end
+
+function autoWalkBossPremium()
+    task.spawn(function()
+        local randomDistance = math.random(4, 8)
+        while getgenv().autoWalkBossPremium do
+            pcall(function()
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not charRoot or not humanoid then return end
+                local bossRoot = getBossData()
+                if bossRoot then
+                    getgenv().BossKillerPremWlkAlive = true
+                    local distance = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(bossRoot.Position.X, 0, bossRoot.Position.Z)).Magnitude
+                    if distance > 50 then
+                        charRoot.CFrame = bossRoot.CFrame + Vector3.new(0, 3, 0)
+                    elseif distance > randomDistance then
+                        humanoid:MoveTo(bossRoot.Position)
+                    else
+                        humanoid:MoveTo(charRoot.Position)
+                    end
+                else
+                    getgenv().BossKillerPremWlkAlive = false
+                end
+            end)
+            task.wait(0.3)
+        end
+    end)
+end
+
+function autoBringBoss()
+    task.spawn(function()
+        while getgenv().autoBringBoss do
+            pcall(function()
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                if not charRoot then return end
+                local bossRoot = getBossData()
+                if bossRoot then
+                    local tween = TweenService:Create(bossRoot, TweenInfo.new(0.5), {CFrame = charRoot.CFrame})
+                    tween:Play()
+                end
+            end)
+            task.wait()
+        end
+    end)
+end
+
+function autoBuySaber()
+    spawn(function()
+        while getgenv().autoBuySaber and task do
+            ReplicatedStorage.Events.UIAction:FireServer("BuyAllWeapons")
+            task.wait(1.5)
+        end
+    end)
+end
+
+function autoBuyDNA()
+    spawn(function()
+        while getgenv().autoBuyDNA and task do
+            ReplicatedStorage.Events.UIAction:FireServer("BuyAllDNAs")
+            task.wait(1.5)
+        end
+    end)
+end
+
+function autoBuyClass()
+    spawn(function()
+        while getgenv().autoBuyClass and task do
+            local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+            local itemInfo = require(ReplicatedStorage.Modules.ItemInfo)
+            local nextClass = itemInfo.Classes_Order[dataManager.Data.Best_Class_Index + 1]
+            if nextClass then
+                ReplicatedStorage.Events.UIAction:FireServer("BuyClass", nextClass)
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+function autoBuyBossDamage()
+    spawn(function()
+        while getgenv().autoBuyBossDamage and task do
+            ReplicatedStorage.Events.UIAction:FireServer("BuyAllBossBoosts")
+            task.wait(1)
+        end
+    end)
+end
+
+function autoBuyAura()
+    spawn(function()
+        while getgenv().autoBuyAura and task do
+            ReplicatedStorage.Events.UIAction:FireServer("BuyAllAuras")
+            task.wait(1)
+        end
+    end)
+end
+
+function autoBuyPetAura()
+    spawn(function()
+        while getgenv().autoBuyPetAura and task do
+            ReplicatedStorage.Events.UIAction:FireServer("BuyAllPetAuras")
+            task.wait(1)
+        end
+    end)
+end
+
+function fetchEggShopList()
+    local eggList = {}
+    local eggMap = {}
+    local eggImages = {}
+
+    local shopData = {
+        {Name = "Basic Egg", Image = "rbxassetid://88804981672877"},
+        {Name = "Wooden Egg", Image = "rbxassetid://84218619466162"},
+        {Name = "Halloween", Image = "rbxassetid://70698311435941"},
+        {Name = "Reinforced Egg", Image = "rbxassetid://92894295691700"},
+        {Name = "Ancient", Image = "rbxassetid://138354218459266"},
+        {Name = "Cursed Egg", Image = "rbxassetid://71918275369648"},
+        {Name = "Egg of life", Image = "rbxassetid://119093633883595"},
+        {Name = "Glory Egg", Image = "rbxassetid://103515024821961"},
+        {Name = "Dominus Egg", Image = "rbxassetid://84423702277372"},
+        {Name = "Silver Egg", Image = "rbxassetid://87938752476733"},
+        {Name = "Golden Egg", Image = "rbxassetid://125099771017092"},
+        {Name = "Premium Egg", Image = "rbxassetid://135680820194944"},
+        {Name = "Heart Egg", Image = "rbxassetid://81383225737530"},
+        {Name = "Class Egg", Image = "rbxassetid://119785366054261"},
+        {Name = "Diamond Egg", Image = "rbxassetid://101857621951969"},
+        {Name = "Ruby Egg", Image = "rbxassetid://78951170574839"},
+        {Name = "Alpha Egg", Image = "rbxassetid://139287591252150"},
+        {Name = "Snow Egg", Image = "rbxassetid://83859952333416"},
+        {Name = "Christmas Egg", Image = "rbxassetid://81807249085248"},
+        {Name = "Ice Egg", Image = "rbxassetid://137721352897486"},
+        {Name = "Reaper Egg", Image = "rbxassetid://94837237730421"},
+        {Name = "Nature Egg", Image = "rbxassetid://109396565604421"},
+        {Name = "Winter Egg", Image = "rbxassetid://104318739321213"},
+        {Name = "Valk Egg", Image = "rbxassetid://100211133376747"},
+        {Name = "Fire Egg", Image = "rbxassetid://122634429460826"},
+        {Name = "Food Egg", Image = "rbxassetid://73564131414251"},
+        {Name = "Dragon Egg", Image = "rbxassetid://112821859726900"},
+        {Name = "Star Egg", Image = "rbxassetid://95242748655278"},
+        {Name = "Cow Egg", Image = "rbxassetid://78129747023117"},
+        {Name = "Flame Egg", Image = "rbxassetid://126454174915046"},
+        {Name = "Water Egg", Image = "rbxassetid://136395870550745"},
+        {Name = "Ooga Egg", Image = "rbxassetid://131048018768726"},
+        {Name = "Valentine Egg", Image = "rbxassetid://112782360392477"},
+        {Name = "Matrix Egg", Image = "rbxassetid://101171046976865"},
+        {Name = "Round Egg", Image = "rbxassetid://86518992970899"},
+        {Name = "Thanksgiving Egg", Image = "rbxassetid://137158361471030"},
+        {Name = "Shadow Egg", Image = "rbxassetid://76523314830135"},
+        {Name = "Pink Egg", Image = "rbxassetid://118332068664851"},
+        {Name = "Candy Egg", Image = "rbxassetid://102803796324230"},
+        {Name = "Rushed Egg", Image = "rbxassetid://108178654878889"},
+        {Name = "Onetap Egg", Image = "rbxassetid://136266007393669"},
+        {Name = "Swag Egg", Image = "rbxassetid://119454736888734"},
+        {Name = "Triangle Egg", Image = "rbxassetid://116121215110138"},
+        {Name = "Square Egg", Image = "rbxassetid://88771415398844"},
+        {Name = "Cringe Egg", Image = "rbxassetid://131251255197735"},
+        {Name = "Boris Egg", Image = "rbxassetid://120309667981743"},
+        {Name = "Phantom Egg", Image = "rbxassetid://128709384050464"},
+        {Name = "Business Egg", Image = "rbxassetid://130158993094706"},
+        {Name = "Egg Egg", Image = "rbxassetid://125068222737446"},
+        {Name = "Birthday Egg", Image = "rbxassetid://136155095004962"},
+        {Name = "Easter Egg", Image = "rbxassetid://112541003968164"},
+        {Name = "Switch Egg", Image = "rbxassetid://81579943552003"},
+        {Name = "America Egg", Image = "rbxassetid://96710963109295"},
+        {Name = "British Egg", Image = "rbxassetid://116022148397672"},
+        {Name = "Erick Egg", Image = "rbxassetid://104996396558772"},
+        {Name = "Henry Egg", Image = "rbxassetid://97178700275962"},
+        {Name = "Lazy Dev Egg", Image = "rbxassetid://81170246167534"},
+        {Name = "Puppet Egg", Image = "rbxassetid://109455238544843"},
+        {Name = "Piggy Egg", Image = "rbxassetid://95975429685300"},
+        {Name = "Easy Egg", Image = "rbxassetid://110611321676337"},
+        {Name = "Guts Egg", Image = "rbxassetid://134136193786608"},
+        {Name = "Bruh Egg", Image = "rbxassetid://139644890578287"},
+        {Name = "Griffith Egg", Image = "rbxassetid://84755002334796"},
+        {Name = "Casca Egg", Image = "rbxassetid://128934092578288"},
+        {Name = "Femto Egg", Image = "rbxassetid://91597926843817"},
+        {Name = "Pippin Egg", Image = "rbxassetid://82382708142277"},
+        {Name = "Dog Egg", Image = "rbxassetid://125984526244509"},
+        {Name = "Bingo Egg", Image = "rbxassetid://137301337802485"},
+        {Name = "M Egg", Image = "rbxassetid://106244714140639"},
+        {Name = "A Egg", Image = "rbxassetid://91263429271880"},
+        {Name = "B Egg", Image = "rbxassetid://122251420200227"},
+        {Name = "C Egg", Image = "rbxassetid://71646857736158"},
+        {Name = "D Egg", Image = "rbxassetid://117440104639027"},
+        {Name = "F Egg", Image = "rbxassetid://138434606064868"},
+        {Name = "E Egg", Image = "rbxassetid://84124866720403"},
+        {Name = "H Egg", Image = "rbxassetid://106610839480739"},
+        {Name = "G Egg", Image = "rbxassetid://87667002721511"},
+        {Name = "I Egg", Image = "rbxassetid://112806848879710"},
+        {Name = "J Egg", Image = "rbxassetid://127724093964635"},
+        {Name = "K Egg", Image = "rbxassetid://122885026251475"},
+        {Name = "L Egg", Image = "rbxassetid://112460172217893"},
+        {Name = "N Egg", Image = "rbxassetid://85893512536616"},
+        {Name = "O Egg", Image = "rbxassetid://73824064351366"},
+        {Name = "P Egg", Image = "rbxassetid://84691533469717"},
+        {Name = "Q Egg", Image = "rbxassetid://109443815204496"},
+        {Name = "R Egg", Image = "rbxassetid://132567547425983"},
+        {Name = "S Egg", Image = "rbxassetid://95670047691222"},
+        {Name = "T Egg", Image = "rbxassetid://85540815268879"},
+        {Name = "U Egg", Image = "rbxassetid://82868169963026"},
+        {Name = "V Egg", Image = "rbxassetid://137653989621490"},
+        {Name = "W Egg", Image = "rbxassetid://131696395913457"},
+        {Name = "X Egg", Image = "rbxassetid://109929029126390"},
+        {Name = "Y Egg", Image = "rbxassetid://74991055365276"},
+        {Name = "Z Egg", Image = "rbxassetid://116226758689311"},
+        {Name = "AH Egg", Image = "rbxassetid://126946577785511"},
+        {Name = "AA Egg", Image = "rbxassetid://134449036547933"},
+        {Name = "AB Egg", Image = "rbxassetid://98388440499689"},
+        {Name = "AC Egg", Image = "rbxassetid://80995049667067"},
+        {Name = "AD Egg", Image = "rbxassetid://85071290465168"},
+        {Name = "AE Egg", Image = "rbxassetid://131972677859954"},
+        {Name = "AF Egg", Image = "rbxassetid://110365742306084"},
+        {Name = "AG Egg", Image = "rbxassetid://123586535085159"},
+        {Name = "AM Egg", Image = "rbxassetid://71361653413839"},
+        {Name = "AI Egg", Image = "rbxassetid://94763831194328"},
+        {Name = "AJ Egg", Image = "rbxassetid://93248691123281"},
+        {Name = "AK Egg", Image = "rbxassetid://89332562454784"},
+        {Name = "AL Egg", Image = "rbxassetid://95986215282502"},
+        {Name = "AZ Egg", Image = "rbxassetid://107732894072758"},
+        {Name = "AN Egg", Image = "rbxassetid://107088020545549"},
+        {Name = "AO Egg", Image = "rbxassetid://128954488591725"},
+        {Name = "AP Egg", Image = "rbxassetid://132737591376996"},
+        {Name = "AQ Egg", Image = "rbxassetid://105445677860717"},
+        {Name = "AR Egg", Image = "rbxassetid://94884688842909"},
+        {Name = "AS Egg", Image = "rbxassetid://96452004520950"},
+        {Name = "AT Egg", Image = "rbxassetid://132580059613869"},
+        {Name = "AU Egg", Image = "rbxassetid://118086762655214"},
+        {Name = "AV Egg", Image = "rbxassetid://83840585961744"},
+        {Name = "AW Egg", Image = "rbxassetid://106593331664820"},
+        {Name = "AX Egg", Image = "rbxassetid://77561234865060"},
+        {Name = "BA Egg", Image = "rbxassetid://137495747437769"},
+        {Name = "BB Egg", Image = "rbxassetid://117460977921829"},
+        {Name = "BF Egg", Image = "rbxassetid://106372908081095"},
+        {Name = "BC Egg", Image = "rbxassetid://118545706463436"},
+        {Name = "BD Egg", Image = "rbxassetid://100949530780659"},
+        {Name = "BE Egg", Image = "rbxassetid://71290806982055"},
+        {Name = "BK Egg", Image = "rbxassetid://82111506983701"},
+        {Name = "BG Egg", Image = "rbxassetid://82299186997904"},
+        {Name = "BH Egg", Image = "rbxassetid://111529418020393"},
+        {Name = "BI Egg", Image = "rbxassetid://105971951329178"},
+        {Name = "DG Egg", Image = "rbxassetid://111063774123760"},
+        {Name = "BL Egg", Image = "rbxassetid://112460172217893"},
+        {Name = "BM Egg", Image = "rbxassetid://88804981672877"},
+        {Name = "BZ Egg", Image = "rbxassetid://103367419901810"},
+        {Name = "BN Egg", Image = "rbxassetid://74406178308640"},
+        {Name = "BO Egg", Image = "rbxassetid://126939961367271"},
+        {Name = "BP Egg", Image = "rbxassetid://116786495527604"},
+        {Name = "BQ Egg", Image = "rbxassetid://118621517818584"},
+        {Name = "BR Egg", Image = "rbxassetid://75503004705347"},
+        {Name = "BS Egg", Image = "rbxassetid://136092321401574"},
+        {Name = "BT Egg", Image = "rbxassetid://75011568457585"},
+        {Name = "BU Egg", Image = "rbxassetid://132786943571976"},
+        {Name = "BV Egg", Image = "rbxassetid://97418697118371"},
+        {Name = "BW Egg", Image = "rbxassetid://97614838653824"},
+        {Name = "BX Egg", Image = "rbxassetid://108637100669232"},
+        {Name = "CD Egg", Image = "rbxassetid://126297837839441"},
+        {Name = "CA Egg", Image = "rbxassetid://97894967097908"},
+        {Name = "CQ Egg", Image = "rbxassetid://87530072253186"},
+        {Name = "CC Egg", Image = "rbxassetid://95716821002349"},
+        {Name = "CB Egg", Image = "rbxassetid://136702267065482"},
+        {Name = "CE Egg", Image = "rbxassetid://107734282123468"},
+        {Name = "CF Egg", Image = "rbxassetid://110365742306084"},
+        {Name = "CG Egg", Image = "rbxassetid://139693709405212"},
+        {Name = "CH Egg", Image = "rbxassetid://117257568639419"},
+        {Name = "CI Egg", Image = "rbxassetid://104223176889051"},
+        {Name = "CJ Egg", Image = "rbxassetid://121030632564958"},
+        {Name = "CK Egg", Image = "rbxassetid://101483394357097"},
+        {Name = "CL Egg", Image = "rbxassetid://121234531313960"},
+        {Name = "CM Egg", Image = "rbxassetid://110381279241325"},
+        {Name = "CN Egg", Image = "rbxassetid://82805256938360"},
+        {Name = "CO Egg", Image = "rbxassetid://105702471496281"},
+        {Name = "CP Egg", Image = "rbxassetid://130076563016703"},
+        {Name = "CR Egg", Image = "rbxassetid://128334582856817"},
+        {Name = "CS Egg", Image = "rbxassetid://128315026662151"},
+        {Name = "CT Egg", Image = "rbxassetid://116917749482588"},
+        {Name = "CU Egg", Image = "rbxassetid://129444031613022"},
+        {Name = "CV Egg", Image = "rbxassetid://78301163024534"},
+        {Name = "CW Egg", Image = "rbxassetid://128877144668623"},
+        {Name = "CX Egg", Image = "rbxassetid://97756210364718"},
+        {Name = "CY Egg", Image = "rbxassetid://78577489846363"},
+        {Name = "CZ Egg", Image = "rbxassetid://94564402455288"},
+        {Name = "DA Egg", Image = "rbxassetid://133351873666810"},
+        {Name = "DB Egg", Image = "rbxassetid://123493385855284"},
+        {Name = "DC Egg", Image = "rbxassetid://91442577985331"},
+        {Name = "DD Egg", Image = "rbxassetid://133937876932434"},
+        {Name = "DE Egg", Image = "rbxassetid://88165925716959"},
+        {Name = "DF Egg", Image = "rbxassetid://85319856164152"},
+        {Name = "DH Egg", Image = "rbxassetid://88697287745827"},
+        {Name = "DI Egg", Image = "rbxassetid://95820066969626"},
+        {Name = "DJ Egg", Image = "rbxassetid://107607628644174"},
+        {Name = "DK Egg", Image = "rbxassetid://137766513081397"},
+        {Name = "DL Egg", Image = "rbxassetid://107371960859821"},
+        {Name = "DM Egg", Image = "rbxassetid://139375489124904"},
+        {Name = "DN Egg", Image = "rbxassetid://136162056360512"},
+        {Name = "DO Egg", Image = "rbxassetid://131987924225115"},
+        {Name = "DP Egg", Image = "rbxassetid://110626813517843"},
+        {Name = "DQ Egg", Image = "rbxassetid://81614370674049"},
+        {Name = "DR Egg", Image = "rbxassetid://127687103965345"},
+        {Name = "DS Egg", Image = "rbxassetid://83541815674403"},
+        {Name = "DT Egg", Image = "rbxassetid://111023304171299"},
+        {Name = "DU Egg", Image = "rbxassetid://94763628810138"},
+        {Name = "DV Egg", Image = "rbxassetid://121758388831682"},
+        {Name = "DW Egg", Image = "rbxassetid://103228449749501"},
+        {Name = "DX Egg", Image = "rbxassetid://126653339120818"},
+        {Name = "DY Egg", Image = "rbxassetid://94783894481233"},
+        {Name = "DZ Egg", Image = "rbxassetid://107434147171671"},
+        {Name = "EA Egg", Image = "rbxassetid://132058459133563"},
+        {Name = "EB Egg", Image = "rbxassetid://122560923046410"},
+        {Name = "EC Egg", Image = "rbxassetid://101918020143795"},
+        {Name = "ED Egg", Image = "rbxassetid://84259135627693"},
+        {Name = "EE Egg", Image = "rbxassetid://134163816528460"},
+        {Name = "EF Egg", Image = "rbxassetid://88757720996267"},
+        {Name = "EG Egg", Image = "rbxassetid://124175266830863"},
+        {Name = "EH Egg", Image = "rbxassetid://109921746541200"},
+        {Name = "EI Egg", Image = "rbxassetid://120626676146020"},
+        {Name = "EJ Egg", Image = "rbxassetid://130756189085851"},
+        {Name = "EK Egg", Image = "rbxassetid://81025838999547"},
+        {Name = "EL Egg", Image = "rbxassetid://98965206793906"},
+        {Name = "EM Egg", Image = "rbxassetid://132984926366222"},
+        {Name = "EN Egg", Image = "rbxassetid://82265209351243"},
+        {Name = "EO Egg", Image = "rbxassetid://87213881174742"},
+        {Name = "EP Egg", Image = "rbxassetid://125120631385002"},
+        {Name = "EQ Egg", Image = "rbxassetid://129471097485715"},
+        {Name = "ER Egg", Image = "rbxassetid://100601398789064"},
+        {Name = "ES Egg", Image = "rbxassetid://99398537443914"},
+        {Name = "ET Egg", Image = "rbxassetid://111248154175294"},
+        {Name = "EU Egg", Image = "rbxassetid://73315558811176"},
+        {Name = "EV Egg", Image = "rbxassetid://133290512845541"},
+        {Name = "EW Egg", Image = "rbxassetid://109124998331149"},
+        {Name = "EX Egg", Image = "rbxassetid://70662084922380"},
+        {Name = "EY Egg", Image = "rbxassetid://134234462250903"},
+        {Name = "EZ Egg", Image = "rbxassetid://132250900664289"},
+        {Name = "FA Egg", Image = "rbxassetid://133869132564333"},
+        {Name = "FB Egg", Image = "rbxassetid://128826365174406"},
+        {Name = "FC Egg", Image = "rbxassetid://129673092049690"},
+        {Name = "FD Egg", Image = "rbxassetid://134793172134549"},
+        {Name = "FE Egg", Image = "rbxassetid://96306007292389"},
+        {Name = "FF Egg", Image = "rbxassetid://94390100437216"},
+        {Name = "FG Egg", Image = "rbxassetid://96205304676356"},
+        {Name = "FH Egg", Image = "rbxassetid://91117496270004"},
+        {Name = "FI Egg", Image = "rbxassetid://109283454203121"},
+        {Name = "FJ Egg", Image = "rbxassetid://104814035893516"},
+        {Name = "FK Egg", Image = "rbxassetid://89681365046938"},
+        {Name = "FL Egg", Image = "rbxassetid://139730208001040"},
+        {Name = "FM Egg", Image = "rbxassetid://101294815434993"},
+        {Name = "FN Egg", Image = "rbxassetid://71408324989218"},
+        {Name = "FO Egg", Image = "rbxassetid://79605856538551"},
+        {Name = "FP Egg", Image = "rbxassetid://99939209261696"},
+        {Name = "FQ Egg", Image = "rbxassetid://127251783114742"},
+        {Name = "FR Egg", Image = "rbxassetid://136992026499991"},
+        {Name = "FS Egg", Image = "rbxassetid://74885935690411"},
+        {Name = "FT Egg", Image = "rbxassetid://98420653376242"},
+        {Name = "FU Egg", Image = "rbxassetid://126526188690958"},
+        {Name = "FV Egg", Image = "rbxassetid://114253806444473"},
+        {Name = "FW Egg", Image = "rbxassetid://71526232904708"},
+        {Name = "FX Egg", Image = "rbxassetid://132359122422676"},
+        {Name = "FY Egg", Image = "rbxassetid://133211101289148"},
+        {Name = "FZ Egg", Image = "rbxassetid://127063050001528"},
+        {Name = "GA Egg", Image = "rbxassetid://84259135627693"},
+        {Name = "GB Egg", Image = "rbxassetid://79605856538551"},
+        {Name = "GC Egg", Image = "rbxassetid://99939209261696"},
+        {Name = "GD Egg", Image = "rbxassetid://127251783114742"},
+        {Name = "GE Egg", Image = "rbxassetid://136992026499991"},
+        {Name = "GF Egg", Image = "rbxassetid://74885935690411"},
+        {Name = "GG Egg", Image = "rbxassetid://98420653376242"},
+        {Name = "GH Egg", Image = "rbxassetid://126526188690958"},
+        {Name = "GI Egg", Image = "rbxassetid://114253806444473"}
+    }
+
+    for i, data in ipairs(shopData) do
+        local pageNum = math.ceil(i / 12)
+        local eggNum = ((i - 1) % 12) + 1
+        local displayText = string.format("Page: %d, Egg: %d, Name: %s", pageNum, eggNum, data.Name)
+
+        table.insert(eggList, displayText)
+        eggMap[displayText] = data.Name
+        table.insert(eggImages, data.Image)
+    end
+
+    -- Fallback: Check for brand NEW eggs that weren't in the dump
+    local succ, petsInfo = pcall(function()
+        return require(ReplicatedStorage.Modules.PetsInfo)
+    end)
+
+    if succ and petsInfo then
+        local knownEggs = {}
+        for _, e in ipairs(shopData) do knownEggs[e.Name] = true end
+
+        local extraEggs = {}
+        if petsInfo.Eggs then
+            for eggName, eggData in pairs(petsInfo.Eggs) do
+                if not knownEggs[eggName] then
+                    table.insert(extraEggs, {Name = eggName, Image = eggData.Image or ""})
+                end
+            end
+        end
+
+        table.sort(extraEggs, function(a, b) return a.Name < b.Name end)
+
+        for _, data in ipairs(extraEggs) do
+            local i = #eggList + 1
+            local pageNum = math.ceil(i / 12)
+            local eggNum = ((i - 1) % 12) + 1
+            local displayText = string.format("Page: %d, Egg: %d, Name: %s", pageNum, eggNum, data.Name)
+
+            table.insert(eggList, displayText)
+            eggMap[displayText] = data.Name
+            table.insert(eggImages, data.Image)
+        end
+    end
+
+    return eggList, eggMap, eggImages
+end
+
+function autoOpenEgg()
+    spawn(function()
+        while getgenv().autoOpenEgg and task do
+            if Players.LocalPlayer.Character then
+                local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local petShopLocation = workspace.Gameplay.Locations:FindFirstChild("PetShop")
+                if charRoot and petShopLocation then
+                    local horizontalDistance = Vector2.new(charRoot.Position.X - petShopLocation.CFrame.Position.X, charRoot.Position.Z - petShopLocation.CFrame.Position.Z).Magnitude
+                    if horizontalDistance > 5 then
+                        charRoot.CFrame = petShopLocation.CFrame
+                        task.wait(0.15)
+                    end
+                    local eggToHatch = getgenv().SelectedEggIsHere
+                    if not eggToHatch or eggToHatch == "" then
+                        eggToHatch = "Wooden Egg"
+                    end
+                    ReplicatedStorage.Events.UIAction:FireServer("BuyEgg", eggToHatch)
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function autoCompletePetdex()
+    spawn(function()
+        qprint("[PETDEX] Starting Auto Complete Petdex loop...")
+        local failedBuys = {} -- Tracks eggs/pets that are inactive/event-only
+
+        while getgenv().autoCompletePetdex and task do
+            local success, err = pcall(function()
+                -- 1. Teleport to Pet Shop
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local petShopLocation = workspace.Gameplay.Locations:FindFirstChild("PetShop")
+                if charRoot and petShopLocation then
+                    local dist = (charRoot.Position - petShopLocation.CFrame.Position).Magnitude
+                    if dist > 10 then
+                        charRoot.CFrame = petShopLocation.CFrame
+                        task.wait(0.5)
+                    end
+                end
+
+                -- 2. Get Data
+                local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+                local petsInfo = require(ReplicatedStorage.Modules.PetsInfo)
+                if not dataManager.Data or not dataManager.Data.Pets then return end
+
+                -- 3. Count current pets & build owned list
+                local ownedPetTypes = {}
+                local prevPetCount = 0
+                for uid, petData in pairs(dataManager.Data.Pets) do
+                    prevPetCount += 1
+                    if petData.Type then
+                        ownedPetTypes[petData.Type] = true
+                    end
+                end
+
+                -- 4. Find missing pets ONLY from active shop eggs
+                local eggToBuy = nil
+                local missingPetName = nil
+
+                local shopEggs = getgenv().ActiveShopEggs
+
+                if shopEggs and #shopEggs > 0 then
+                    for _, eggInfo in ipairs(shopEggs) do
+                        local eggName = eggInfo.Name
+
+                        -- Skip eggs we already know are inactive/failed
+                        if not failedBuys[eggName] then
+                            local eggData = petsInfo.Eggs and petsInfo.Eggs[eggName]
+                            if eggData and eggData.Odds then
+                                for petName, chance in pairs(eggData.Odds) do
+                                    -- Only try to get this pet if we don't have it AND haven't failed to get it before
+                                    if not ownedPetTypes[petName] and not failedBuys[petName] then
+                                        eggToBuy = eggName
+                                        missingPetName = petName
+                                        break
+                                    end
+                                end
+                            end
+                        end
+
+                        if eggToBuy then break end
+                    end
+                end
+
+                -- 5. Buy the egg if we found a missing pet
+                if eggToBuy and missingPetName then
+                    qprint("[PETDEX] Missing pet:", missingPetName, "-> Trying egg:", eggToBuy)
+                    ReplicatedStorage.Events.UIAction:FireServer("BuyEgg", eggToBuy)
+                    task.wait(3)
+
+                    -- 6. Verify if the buy was successful
+                    local newPetCount = 0
+                    for _ in pairs(dataManager.Data.Pets) do newPetCount += 1 end
+
+                    if newPetCount <= prevPetCount then
+                        -- If we didn't get a new pet, the egg is likely inactive/event-only
+                        qwarn("[PETDEX] Failed to buy/hatch", eggToBuy, "- Blacklisting pet:", missingPetName)
+                        failedBuys[missingPetName] = true
+                        failedBuys[eggName] = true -- Blacklist the whole egg too
+                    else
+                        qprint("[PETDEX] Successfully hatched! Re-scanning...")
+                    end
+                else
+                    qprint("[PETDEX] No active missing pets found! Waiting 15s...")
+                    task.wait(15)
+                end
+            end)
+
+            if not success then
+                qwarn("[PETDEX] Error:", err)
+            end
+
+            task.wait(1)
+        end
+    end)
+end
+
+function autoRedeemPetdexRewards()
+    spawn(function()
+        while getgenv().autoRedeemPetdexRewards and task do
+            local petdexRewards = require(ReplicatedStorage.Modules.PetdexRewardInfo)
+            local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+            for rewardId, rewardData in pairs(petdexRewards.Items) do
+                local isClaimed = table.find(dataManager.Data.PetdexRewardsClaimed, rewardId)
+                if not isClaimed then
+                    local petsNeeded = rewardData.PetsNeeded or 0
+                    local eggsNeeded = rewardData.EggsNeeded or 0
+                    local petsCompleted = petdexRewards:GetNumPetsDiscovered(dataManager.Data) or 0
+                    local eggsCompleted = petdexRewards:GetNumEggsCompleted(dataManager.Data) or 0
+                    if petsCompleted >= petsNeeded and eggsCompleted >= eggsNeeded then
+                        ReplicatedStorage.Events.UIAction:FireServer("ClaimPetdexReward", rewardId)
+                        task.wait(0.5)
+                    end
+                end
+            end
+            task.wait(2)
+        end
+    end)
+end
+
+function autoTeleportToPetShop()
+    spawn(function()
+        while getgenv().autoTeleportToPetShop and task do
+            if Players.LocalPlayer.Character then
+                local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if charRoot then
+                    charRoot.CFrame = workspace.Gameplay.Locations.PetShop.CFrame
+                end
+            end
+            task.wait(2)
+        end
+    end)
+end
+
+function autoCraftAllPets()
+    spawn(function()
+        while getgenv().autoCraftAllPets and task do
+            ReplicatedStorage.Events.UIAction:FireServer("CombineAllPets")
+            task.wait(1)
+        end
+    end)
+end
+
+function autoCraftBestPet()
+    local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+    spawn(function()
+        while getgenv().autoCraftBestPet and task do
+            local petsByType = {}
+            for petId, petData in pairs(dataManager.Data.Pets or {}) do
+                local classType = petData.Class and tostring(petData.Class) or "Normal"
+                local typeKey = petData.Type .. "_" .. classType
+                if not petsByType[typeKey] then petsByType[typeKey] = {} end
+                table.insert(petsByType[typeKey], { id = petId, rank = petData.Rank or 0, xp = petData.XP or 0 })
+            end
+            for _, petList in pairs(petsByType) do
+                if #petList >= 10 then
+                    table.sort(petList, function(a, b)
+                        if a.rank == b.rank then return a.xp > b.xp end
+                        return a.rank > b.rank
+                    end)
+                    ReplicatedStorage.Events.UIAction:FireServer("CombinePet", petList[1].id)
+                end
+            end
+            task.wait(10)
+        end
+    end)
+end
+
+function autoEquipBestPets()
+    spawn(function()
+        while getgenv().autoEquipBestPets and task do
+            ReplicatedStorage.Events.UIAction:FireServer("EquipBestPets")
+            task.wait(1)
+        end
+    end)
+end
+
+function autoEquipBestEventPets()
+    spawn(function()
+        while getgenv().autoEquipBestEventPets and task do
+            ReplicatedStorage.Events.UIAction:FireServer("EquipBestPets", true)
+            task.wait(1)
+        end
+    end)
+end
+
+local PetRarityMap = {}
+pcall(function()
+    local petsInfoModule = require(ReplicatedStorage.Modules.PetsInfo.Pets)
+    for petType, info in pairs(petsInfoModule) do
+        if info.Rarity then
+            PetRarityMap[petType] = info.Rarity
+        end
+    end
+end)
+
+getgenv().selectedRarities = getgenv().selectedRarities or {}
+
+function deletePetsByRarity(targetRarities)
+    local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+    local petsToDelete = {}
+    for uid, pet in pairs(dataManager.Data.Pets) do
+        local isEquipped = table.find(dataManager.Data.PetsEquipped, uid)
+        local isLocked = pet.Locked
+        if not isEquipped and not isLocked then
+            local rarity = PetRarityMap[pet.Type]
+            if rarity and table.find(targetRarities, rarity) then
+                table.insert(petsToDelete, uid)
+            end
+        end
+    end
+    if #petsToDelete > 0 then
+        ReplicatedStorage.Events.UIAction:FireServer("DeletePets", petsToDelete)
+    end
+    return #petsToDelete
+end
+
+function autoDeletePets()
+    spawn(function()
+        while getgenv().autoDeletePets and task do
+            if #getgenv().selectedRarities > 0 then
+                pcall(function()
+                    local deletedCount = deletePetsByRarity(getgenv().selectedRarities)
+                    if deletedCount > 0 then
+                        print("[Pet Delete] Deleted", deletedCount, "pets")
+                    end
+                end)
+            end
+            task.wait(2)
+        end
+    end)
+end
+
+-- ============================================
+-- ELEMENT FARMING FUNCTIONS (WALK + SPOOF HIT)
+-- ============================================
+local ElementZones = {
+    Fire = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Fire.Fire end,
+        Advanced = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedFireArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Fire")
+        end,
+        Master = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterFireArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Fire")
+        end,
+        Grandmaster = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterFireArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Fire")
+        end
+    },
+    Water = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Water.Water end,
+        Advanced = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedWaterArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Water")
+        end,
+        Master = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterWaterArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Water")
+        end,
+        Grandmaster = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterWaterArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Water")
+        end
+    },
+    Earth = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Earth.Model.Earth end,
+        Advanced = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedEarthArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Earth")
+        end,
+        Master = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterEarthArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Earth")
+        end,
+        Grandmaster = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterEarthArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Earth")
+        end
+    },
+    Plasma = {
+        Normal = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedPlasmaArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma")
+        end,
+        Advanced = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterPlasmaArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma")
+        end,
+        Master = function()
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterPlasmaArea")
+            return a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma")
+        end
+    }
+}
+
+getgenv().regionLoaderActive = false
+getgenv().elementFarmLoopActive = false
+getgenv().manualElementCommitFolder = nil
+getgenv().manualElementCommitElement = nil
+getgenv().manualElementCommitTier = nil
+
+local function forceLoadZones()
+    pcall(function()
+        local HiddenRegions = ReplicatedStorage:FindFirstChild("HiddenRegions")
+        local Gameplay = workspace:FindFirstChild("Gameplay")
+        local RegionsLoaded = Gameplay and Gameplay:FindFirstChild("RegionsLoaded")
+        if HiddenRegions and RegionsLoaded then
+            for _, hiddenRegion in pairs(HiddenRegions:GetChildren()) do
+                if hiddenRegion.Parent ~= RegionsLoaded then
+                    hiddenRegion.Parent = RegionsLoaded
+                end
+            end
+        end
+    end)
+end
+
+local function updateGlobalHitSpoof()
+    local elementActive = false
+    for elementName, levels in pairs(ElementZones) do
+        for tier, _ in pairs(levels) do
+            local flag = string.format("autoFarm%s%s", elementName, tier)
+            if getgenv()[flag] then
+                elementActive = true
+                break
+            end
+        end
+        if elementActive then break end
+    end
+
+    getgenv().globalHitSpoof =
+        getgenv().autoTeleportToBoss
+        or getgenv().autoWalkBossPremium
+        or getgenv().autoBringBoss
+        or getgenv().autoQuestExecute
+        or elementActive
+end
+
+local function startMasterElementFarm()
+    if getgenv().elementFarmLoopActive then return end
+    getgenv().elementFarmLoopActive = true
+    task.spawn(function()
+        while getgenv().elementFarmLoopActive do
+            local isAnyActive = false
+            for elementName, levels in pairs(ElementZones) do
+                for tier, _ in pairs(levels) do
+                    if getgenv()[string.format("autoFarm%s%s", elementName, tier)] then
+                        isAnyActive = true
+                        break
+                    end
+                end
+                if isAnyActive then break end
+            end
+            if not isAnyActive then
+                getgenv().elementFarmLoopActive = false
+                getgenv().manualElementCommitFolder = nil
+                getgenv().manualElementCommitElement = nil
+                getgenv().manualElementCommitTier = nil
+                return
+            end
+            pcall(function()
+                forceLoadZones()
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not charRoot or not humanoid then return end
+
+                if getgenv().manualElementCommitFolder and getgenv().manualElementCommitFolder.Parent then
+                    local commitFlag = string.format("autoFarm%s%s", getgenv().manualElementCommitElement, getgenv().manualElementCommitTier)
+                    if not getgenv()[commitFlag] then
+                        getgenv().manualElementCommitFolder = nil
+                        getgenv().manualElementCommitElement = nil
+                        getgenv().manualElementCommitTier = nil
+                    else
+                        local aliveEnemies = {}
+                        for _, obj in ipairs(getgenv().manualElementCommitFolder:GetChildren()) do
+                            local root = obj:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                local healthAttr = obj:GetAttribute("Health")
+                                if not healthAttr or healthAttr > 0 then
+                                    table.insert(aliveEnemies, root)
+                                end
+                            end
+                        end
+                        if #aliveEnemies > 0 then
+                            local zonePos = nil
+                            local zoneCFrame = nil
+                            if getgenv().manualElementCommitFolder:IsA("BasePart") then
+                                zonePos = getgenv().manualElementCommitFolder.Position
+                                zoneCFrame = getgenv().manualElementCommitFolder.CFrame + Vector3.new(0, 3, 0)
+                            elseif getgenv().manualElementCommitFolder:IsA("Model") and getgenv().manualElementCommitFolder.PrimaryPart then
+                                zonePos = getgenv().manualElementCommitFolder.PrimaryPart.Position
+                                zoneCFrame = getgenv().manualElementCommitFolder.PrimaryPart.CFrame + Vector3.new(0, 3, 0)
+                            end
+                            if zonePos and zoneCFrame then
+                                local horizontalDist = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(zonePos.X, 0, zonePos.Z)).Magnitude
+                                if horizontalDist > 50 then
+                                    charRoot.CFrame = zoneCFrame
+                                end
+                            end
+                            local closestRoot = nil
+                            local closestDist = math.huge
+                            for _, root in ipairs(aliveEnemies) do
+                                local d = (charRoot.Position - root.Position).Magnitude
+                                if d < closestDist then
+                                    closestDist = d
+                                    closestRoot = root
+                                end
+                            end
+                            if closestRoot then
+                                if closestDist > 50 then
+                                    charRoot.CFrame = closestRoot.CFrame + Vector3.new(0, 3, 0)
+                                elseif closestDist > 8 then
+                                    humanoid:MoveTo(closestRoot.Position)
+                                else
+                                    humanoid:MoveTo(charRoot.Position)
+                                end
+                            end
+                            return
+                        else
+                            getgenv().manualElementCommitFolder = nil
+                            getgenv().manualElementCommitElement = nil
+                            getgenv().manualElementCommitTier = nil
+                        end
+                    end
+                end
+
+                local validZones = {}
+                for elementName, levels in pairs(ElementZones) do
+                    for tier, getter in pairs(levels) do
+                        local flagName = string.format("autoFarm%s%s", elementName, tier)
+                        if getgenv()[flagName] then
+                            local ok, folder = pcall(getter)
+                            if ok and folder then
+                                local hasAlive = false
+                                for _, obj in ipairs(folder:GetChildren()) do
+                                    local root = obj:FindFirstChild("HumanoidRootPart")
+                                    if root then
+                                        local healthAttr = obj:GetAttribute("Health")
+                                        if not healthAttr or healthAttr > 0 then hasAlive = true; break end
+                                    end
+                                end
+                                if hasAlive then table.insert(validZones, {folder = folder, element = elementName, tier = tier}) end
+                            end
+                        end
+                    end
+                end
+                if #validZones > 0 then
+                    local selectedZone = validZones[math.random(1, #validZones)]
+                    getgenv().manualElementCommitFolder = selectedZone.folder
+                    getgenv().manualElementCommitElement = selectedZone.element
+                    getgenv().manualElementCommitTier = selectedZone.tier
+                    local folder = selectedZone.folder
+                    local zoneCFrame = nil
+                    if folder:IsA("BasePart") then zoneCFrame = folder.CFrame + Vector3.new(0, 3, 0)
+                    elseif folder:IsA("Model") and folder.PrimaryPart then zoneCFrame = folder.PrimaryPart.CFrame + Vector3.new(0, 3, 0) end
+                    if zoneCFrame then
+                        charRoot.CFrame = zoneCFrame
+                        task.wait(0.1)
+                    end
+                end
+            end)
+            task.wait(0.1)
+        end
+    end)
+end
+
+function FarmElement(elementName, level)
+    startMasterElementFarm()
+end
+
+function hidePlasmaElements()
+    spawn(function()
+        while getgenv().hidePlasmaElements and task do
+            for tier, getter in pairs(ElementZones.Plasma) do
+                local ok, zone = pcall(getter)
+                if ok and zone then
+                    for _, descendant in pairs(zone:GetDescendants()) do
+                        if descendant:IsA("BasePart") then
+                            descendant.Transparency = 1
+                            descendant.CanCollide = false
+                        end
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+function autoCollectEventCurrency()
+    spawn(function()
+        while getgenv().autoCollectEventCurrency and task do
+            for _, region in pairs(workspace.Gameplay.RegionsLoaded:GetChildren()) do
+                if region.Name:find("Event") then
+                    local currencyPickup = region:FindFirstChild("CurrencyPickup")
+                    if currencyPickup then
+                        local currencyHolder = currencyPickup:FindFirstChild("CurrencyHolder")
+                        if currencyHolder then
+                            for _, currencyPart in pairs(currencyHolder:GetChildren()) do
+                                if currencyPart.Transparency == 0 and currencyPart:IsA("BasePart") then
+                                    if Players.LocalPlayer.Character then
+                                        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                        if charRoot then
+                                            currencyPart.CFrame = charRoot.CFrame
+                                            currencyPart.Anchored = true
+                                        end
+                                    end
+                                    task.wait()
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function autoWalkEventBoss()
+    task.spawn(function()
+        local randomDistance = math.random(4, 8)
+        while getgenv().autoWalkEventBoss do
+            pcall(function()
+                local char = Players.LocalPlayer.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not charRoot or not humanoid then return end
+                local bossRoot = getEventBossData()
+                if bossRoot then
+                    getgenv().EventBossKillerWlkAlive = true
+                    local distance = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(bossRoot.Position.X, 0, bossRoot.Position.Z)).Magnitude
+                    if distance > 50 then
+                        charRoot.CFrame = bossRoot.CFrame + Vector3.new(0, 3, 0)
+                    elseif distance > randomDistance then
+                        humanoid:MoveTo(bossRoot.Position)
+                    else
+                        humanoid:MoveTo(charRoot.Position)
+                    end
+                else
+                    getgenv().EventBossKillerWlkAlive = false
+                end
+            end)
+            task.wait(0.3)
+        end
+    end)
+end
+
+function autoBuyEventMerchant()
+end
+
+function changeWalkSpeed()
+    spawn(function()
+        while getgenv().changeWalkSpeed and task do
+            if Players.LocalPlayer.Character then
+                local humanoid = Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = getgenv().WalkSpeedValue or 45
+                end
+            end
+            task.wait()
+        end
+    end)
+end
+
+getgenv().autoInvisible = false
+getgenv().invisCache = {}
+
+function toggleInvisibility(state)
+    getgenv().autoInvisible = state
+    if state then
+        spawn(function()
+            qprint("Invisibility Enabled (Combat Safe)")
+            while getgenv().autoInvisible do
+                local char = Players.LocalPlayer.Character
+                if char then
+                    for _, obj in pairs(char:GetDescendants()) do
+                        if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+                            if not getgenv().invisCache[obj] then
+                                getgenv().invisCache[obj] = obj.Transparency
+                            end
+                            obj.Transparency = 1
+                        end
+                    end
+                    local head = char:FindFirstChild("Head")
+                    if head then
+                        local face = head:FindFirstChild("face")
+                        if face and not getgenv().invisCache[face] then
+                            getgenv().invisCache[face] = face.Transparency
+                            face.Transparency = 1
+                        end
+                    end
+                end
+                task.wait(0.1)
+            end
+        end)
+    else
+        qprint("Invisibility Disabled")
+        for obj, originalTransparency in pairs(getgenv().invisCache) do
+            if obj and obj.Parent then
+                obj.Transparency = originalTransparency
+            end
+        end
+        getgenv().invisCache = {}
+    end
+end
+
+function hideVisualEffects()
+    spawn(function()
+        while getgenv().hideVisualEffects and task do
+            Players.LocalPlayer.PlayerGui.MainGui.EffectsFrame.Visible = false
+            task.wait()
+        end
+    end)
+end
+
+function hideNameRankUI()
+    spawn(function()
+        while getgenv().hideNameRankUI and task do
+            for _, player in pairs(Players:GetChildren()) do
+                if player.Character and player.Character.Head and player.Character.Head.RankingGui then
+                    local pName = player.Character.Head.RankingGui:FindFirstChild("PName")
+                    if pName then pName.Text = "SaberSimulatorFucker" end
+                    local tag1 = player.Character.Head.RankingGui:FindFirstChild("Tag1")
+                    if tag1 then tag1.Text = "DEVIL" end
+                    if Players.LocalPlayer.Character and Players.LocalPlayer.Character.Head then
+                        Players.LocalPlayer.Character.Head.RankingGui.Tag2.Text = "Vip"
+                        Players.LocalPlayer.Character.Head.RankingGui.Tag2.Visible = true
+                        local elementAmount = Players.LocalPlayer.Character.Head.RankingGui.ImageFrame.Element:FindFirstChild("Amount")
+                        if elementAmount then elementAmount.Text = "999+" end
+                    end
+                end
+            end
+            task.wait()
+        end
+    end)
+end
+
+function autoTeleportToSavedLocation()
+    spawn(function()
+        while getgenv().autoTeleportToSavedLocation and task do
+            if getgenv().SavedLocation and Players.LocalPlayer.Character then
+                local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if charRoot then
+                    charRoot.CFrame = getgenv().SavedLocation
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function infiniteJump()
+    spawn(function()
+        local jumpAnimation = Instance.new("Animation")
+        jumpAnimation.AnimationId = "rbxassetid://4210710991"
+        while getgenv().infiniteJump and task do
+            if Players.LocalPlayer.Character then
+                local humanoid = Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    humanoid.JumpPower = 150
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function teleportToNormalFire()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.Map.ElementZones.Fire.Fire.CFrame end
+    end
+end
+
+function teleportToAdvanceFire()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.AdvancedFireArea.Important.Fire.CFrame end
+    end
+end
+
+function teleportToMasterFire()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.MasterFireArea.Important.Fire.InnerCircle.CFrame end
+    end
+end
+
+function teleportToGMasterFire()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.GrandmasterFireArea.Important.Fire.InnerCircle.CFrame end
+    end
+end
+
+function teleportToNormalWater()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.Map.ElementZones.Water.Water.CFrame end
+    end
+end
+
+function teleportToAdvanceWater()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.AdvancedWaterArea.Important.Water.CFrame end
+    end
+end
+
+function teleportToMasterWater()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.MasterWaterArea.Important.Water.InnerCircle.CFrame end
+    end
+end
+
+function teleportToGMasterWater()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.GrandmasterWaterArea.Important.Water.InnerCircle.CFrame end
+    end
+end
+
+function teleportToNormalEarth()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.Map.ElementZones.Earth.Model.Earth.CFrame end
+    end
+end
+
+function teleportToAdvanceEarth()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.AdvancedEarthArea.Important.Earth.CFrame end
+    end
+end
+
+function teleportToMasterEarth()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.MasterEarthArea.Important.Earth.InnerCircle.CFrame end
+    end
+end
+
+function teleportToGMasterEarth()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.RegionsLoaded.GrandmasterEarthArea.Important.Earth.InnerCircle.CFrame end
+    end
+end
+
+local function getZoneCFrame(zoneObj)
+    if not zoneObj then return nil end
+    if zoneObj:IsA("BasePart") then return zoneObj.CFrame end
+    if zoneObj:IsA("Model") then
+        if zoneObj.PrimaryPart then return zoneObj.PrimaryPart.CFrame end
+        local main = zoneObj:FindFirstChild("Main") or zoneObj:FindFirstChild("InnerCircle")
+        if main and main:IsA("BasePart") then return main.CFrame end
+    end
+    return nil
+end
+
+function teleportToNormalPlasma()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedPlasmaArea")
+            if a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma") then
+                charRoot.CFrame = a.Important.Plasma.CFrame + Vector3.new(0, 5, 0)
+            end
+        end
+    end
+end
+
+function teleportToAdvancePlasma()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterPlasmaArea")
+            if a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma") then
+                charRoot.CFrame = a.Important.Plasma.CFrame + Vector3.new(0, 5, 0)
+            end
+        end
+    end
+end
+
+function teleportToMasterPlasma()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then
+            local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterPlasmaArea")
+            if a and a:FindFirstChild("Important") and a.Important:FindFirstChild("Plasma") then
+                charRoot.CFrame = a.Important.Plasma.CFrame + Vector3.new(0, 5, 0)
+            end
+        end
+    end
+end
+
+function teleportToPetShop()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = workspace.Gameplay.Locations.PetShop.CFrame end
+    end
+end
+
+function saveCurrentLocation()
+    if Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then
+            getgenv().SavedLocation = charRoot.CFrame
+        end
+    end
+end
+
+function teleportToSavedLocation()
+    if getgenv().SavedLocation and Players.LocalPlayer.Character then
+        local charRoot = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if charRoot then charRoot.CFrame = getgenv().SavedLocation end
+    end
+end
+
+function autoBuyTravelingMerchant()
+    spawn(function()
+        while getgenv().autoBuyTravelingMerchant and task do
+            pcall(function()
+                local dataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+                local merchantInfo = require(ReplicatedStorage.Modules.TravelingMerchantInfo)
+                if not dataManager.Data.TravelingMerchant or not dataManager.Data.TravelingMerchant.Items then return end
+                for slot, itemData in pairs(dataManager.Data.TravelingMerchant.Items) do
+                    if itemData and itemData.BuysLeft and itemData.BuysLeft > 0 then
+                        local listing = merchantInfo.Listings[itemData.Index]
+                        if listing then
+                            local itemType = listing.Type or "Other"
+                            -- Check if we enabled buying this TYPE of item
+                            if getgenv()["tm_type_" .. itemType] then
+                                ReplicatedStorage.Events.UIAction:FireServer("TravelingMerchantBuyItem", slot, dataManager.Data.TravelingMerchant.ResetDT)
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                end
+            end)
+            task.wait(1)
+        end
+    end)
+end
+
+function autoInviteTopRanks()
+    spawn(function()
+        while getgenv().autoInviteTopRanks and task do
+            local itemInfo = require(ReplicatedStorage.Modules.ItemInfo)
+            local topRanks = {}
+            local startIndex = math.max(1, #itemInfo.Classes_Order - 4)
+            for i = startIndex, #itemInfo.Classes_Order do
+                table.insert(topRanks, itemInfo.Classes_Order[i])
+            end
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer then
+                    local leaderstats = player:FindFirstChild("leaderstats")
+                    if leaderstats then
+                        local playerClass = leaderstats:FindFirstChild("Class")
+                        if playerClass then
+                            for _, rank in pairs(topRanks) do
+                                if playerClass.Value == rank then
+                                    ReplicatedStorage.Events.UIAction:FireServer("InvitePlayerToClan", player.Name)
+                                    task.wait(0.5)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(5)
+        end
+    end)
+end
+
+-- ============================================
+-- CONFIG
+-- ============================================
+local ELEMENTS = {"Fire", "Water", "Earth", "Plasma"}
+local TIERS = {"Grandmaster", "Master", "Advanced", "Normal"}
+
+-- ============================================
+-- HELPERS
+-- ============================================
+local function getChar()
+    local char = Players.LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return end
+    return char, root, hum
+end
+
+-- ============================================
+-- BOSS FARM
+-- ============================================
+function QuestFarmBossWalk()
+    local _, charRoot, humanoid = getChar()
+    if not charRoot then return end
+    local bossRoot = getBossData()
+    if not bossRoot then
+        qwarn("Boss not found - waiting for respawn")
+        return
+    end
+    local dist =
+        (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) -
+         Vector3.new(bossRoot.Position.X, 0, bossRoot.Position.Z)).Magnitude
+    if dist > 50 then
+        charRoot.CFrame = bossRoot.CFrame + Vector3.new(0, 3, 0)
+    elseif dist > 8 then
+        humanoid:MoveTo(bossRoot.Position)
+    else
+        humanoid:MoveTo(charRoot.Position)
+    end
+end
+
+-- ============================================
+-- EGG FARM
+-- ============================================
+function QuestFarmEgg()
+    local _, charRoot = getChar()
+    if not charRoot then return end
+    if not getgenv().SelectedEggIsHere then return end
+    local petShop = workspace.Gameplay.Locations:FindFirstChild("PetShop")
+    if petShop then
+        charRoot.CFrame = petShop.CFrame + Vector3.new(0, 3, 0)
+    end
+    ReplicatedStorage.Events.UIAction:FireServer("BuyEgg", getgenv().SelectedEggIsHere)
+end
+
+-- ============================================
+-- DUNGEON FARM
+-- ============================================
+function QuestFarmDungeon()
+    local lp = Players.LocalPlayer
+    local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+    local inDungeon = false
+    if dungeonStorage then
+        for _, folder in ipairs(dungeonStorage:GetChildren()) do
+            if #folder:GetChildren() > 0 then
+                inDungeon = true
+                break
+            end
+        end
+    end
+    if inDungeon then
+        qprint("Already in dungeon")
+        return
+    end
+    local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+    local timeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
+    local cooldownEnd = dataManager.Data and dataManager.Data.DungeonCooldownEndDT or 0
+    if timeManager:Now() < cooldownEnd then
+        qprint("Dungeon cooldown active")
+        return
+    end
+    local dungeon = getgenv().SelectedDungeon or "Space"
+    local diff = getgenv().SelectedDifficulty or 1
+    qprint("Starting dungeon:", dungeon, diff)
+    ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", dungeon, diff)
+    task.wait(1.5)
+    ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
+end
+
+-- ============================================
+-- KOTH FARM
+-- ============================================
+getgenv().currentFarmingFlagBase = nil
+getgenv().flagCommitTime = 0
+getgenv().flagCooldownUntil = 0
+
+function QuestFarmKOTH()
+    local _, charRoot = getChar()
+    if not charRoot then return end
+    local gameplay = workspace:FindFirstChild("Gameplay")
+    if not gameplay then return end
+    local koth = gameplay:FindFirstChild("KOTH")
+    if not koth then return end
+    local boundary = koth:FindFirstChild("KOH_BOUNDARY")
+    if not boundary then return end
+    local ring = boundary:FindFirstChild("Meshes/ring")
+        or boundary:FindFirstChild("ring")
+        or boundary:FindFirstChildWhichIsA("BasePart")
+    if ring then
+        local centerCFrame = ring.CFrame + Vector3.new(0, 3, 0)
+        charRoot.CFrame = centerCFrame
+        charRoot.AssemblyLinearVelocity = Vector3.zero
+    end
+end
+
+-- ============================================
+-- KOTH + ELEMENT TIME-SHARE SYSTEM (WALK MODE)
+-- ============================================
+local ZoneCenters = {
+    Fire = CFrame.new(546.036, 186.938, 464.304),
+    Water = CFrame.new(114.001, 278.755, -561.128),
+    Earth = CFrame.new(781.886, 206.538, -240.539),
+    Plasma = CFrame.new(899.925, 200.119, 53.211)
+}
+
+getgenv().kothElementTimeShareActive = false
+
+function startKothElementTimeShare()
+    if getgenv().kothElementTimeShareActive then return end
+    getgenv().kothElementTimeShareActive = true
+    task.spawn(function()
+        qprint("KOTH/Element Time-Share: Started (Walk Mode)")
+        local lp = Players.LocalPlayer
+        while getgenv().kothElementTimeShareActive do
+            pcall(function()
+                local char = lp.Character
+                if not char then return end
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not charRoot or not humanoid then return end
+                forceLoadZones()
+                -- PHASE 1: KOTH (2.1 Seconds)
+                local koth = workspace.Gameplay:FindFirstChild("KOTH")
+                if koth then
+                    local boundary = koth:FindFirstChild("KOH_BOUNDARY")
+                    if boundary then
+                        local ring = boundary:FindFirstChild("Meshes/ring") or boundary:FindFirstChild("ring") or boundary:FindFirstChildWhichIsA("BasePart")
+                        if ring then
+                            charRoot.CFrame = ring.CFrame + Vector3.new(0, 3, 0)
+                            charRoot.Anchored = true
+                            charRoot.AssemblyLinearVelocity = Vector3.zero
+                            task.wait(3)
+                        end
+                    end
+                end
+                -- PHASE 2: ELEMENT FARM (2.5 Seconds) - Walk to mobs
+                charRoot.Anchored = false
+                local bestZone = nil
+                local aliveMobs = {}
+                for zoneName, zoneCFrame in pairs(ZoneCenters) do
+                    local zoneMobs = {}
+                    for _, mob in pairs(CollectionService:GetTagged("Mob")) do
+                        if (mob:GetAttribute("Health") or 0) > 0 then
+                            local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+                            if mobRoot and (mobRoot.Position - zoneCFrame.Position).Magnitude < 250 then
+                                table.insert(zoneMobs, mob)
+                            end
+                        end
+                    end
+                    if #zoneMobs > #aliveMobs then
+                        aliveMobs = zoneMobs
+                        bestZone = zoneCFrame
+                    end
+                end
+                if bestZone and #aliveMobs > 0 then
+                    local horizontalDist = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(bestZone.Position.X, 0, bestZone.Position.Z)).Magnitude
+                    if horizontalDist > 50 then
+                        charRoot.CFrame = bestZone
+                    end
+                    local closestRoot = nil
+                    local closestDist = math.huge
+                    for _, mob in ipairs(aliveMobs) do
+                        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+                        if mobRoot then
+                            local d = (charRoot.Position - mobRoot.Position).Magnitude
+                            if d < closestDist then
+                                closestDist = d
+                                closestRoot = mobRoot
+                            end
+                        end
+                    end
+                    if closestRoot then
+                        if closestDist > 50 then
+                            charRoot.CFrame = closestRoot.CFrame + Vector3.new(0, 3, 0)
+                        elseif closestDist > 8 then
+                            humanoid:MoveTo(closestRoot.Position)
+                        else
+                            humanoid:MoveTo(charRoot.Position)
+                        end
+                    end
+                    task.wait(3)
+                else
+                    task.wait(1)
+                end
+            end)
+            task.wait(0.1)
+        end
+        pcall(function()
+            local char = lp.Character
+            if char then
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                if charRoot then charRoot.Anchored = false end
+            end
+        end)
+        qprint("KOTH/Element Time-Share: Stopped")
+    end)
+end
+
+function stopKothElementTimeShare()
+    getgenv().kothElementTimeShareActive = false
+end
+
+-- ============================================
+-- FLAG FARM
+-- ============================================
+function QuestFarmFlags()
+    local char, charRoot = getChar()
+    if not charRoot then return false end
+    local gameplay = workspace:FindFirstChild("Gameplay")
+    if not gameplay then return false end
+    local flags = gameplay:FindFirstChild("Flags")
+    if not flags then return false end
+
+    if getgenv().currentFarmingFlagBase and getgenv().currentFarmingFlagBase.Parent then
+        local timeOnFlag = tick() - (getgenv().flagCommitTime or 0)
+        if timeOnFlag < 25 then
+            if (charRoot.Position - getgenv().currentFarmingFlagBase.Position).Magnitude > 10 then
+                charRoot.CFrame = getgenv().currentFarmingFlagBase.CFrame + Vector3.new(0, 3, 0)
+            end
+            return false
+        end
+    end
+    local unOwnedFlagBase = nil
+    for _, flag in ipairs(flags:GetChildren()) do
+        local base = flag:FindFirstChild("Base")
+        local pole = flag:FindFirstChild("Flag")
+        if base and pole then
+            local gui = pole:FindFirstChildWhichIsA("BillboardGui")
+            if gui then
+                local isOwnedByUs = false
+                for _, desc in ipairs(gui:GetDescendants()) do
+                    if desc:IsA("TextLabel") and desc.Text then
+                        if tostring(desc.Text):find(Players.LocalPlayer.DisplayName) then
+                            isOwnedByUs = true
+                            break
+                        end
+                    end
+                end
+                if not isOwnedByUs then
+                    unOwnedFlagBase = base
+                    break
+                end
+            end
+        end
+    end
+    if unOwnedFlagBase then
+        getgenv().currentFarmingFlagBase = unOwnedFlagBase
+        getgenv().flagCommitTime = tick()
+        qprint("Found unowned flag. Committing for 25 seconds.")
+        if (charRoot.Position - unOwnedFlagBase.Position).Magnitude > 10 then
+            charRoot.CFrame = unOwnedFlagBase.CFrame + Vector3.new(0, 3, 0)
+        end
+        return false
+    else
+        qprint("All flags captured! Starting 30s cooldown to do other quests...")
+        getgenv().flagCooldownUntil = tick() + 30
+        return true
+    end
+end
+
+-- ============================================
+-- ELEMENT FARM (WALK + SPOOF HIT)
+-- ============================================
+getgenv().currentFarmingFolder = nil
+
+function FarmAnyAvailableElement(needsBoss)
+    local char, charRoot, humanoid = getChar()
+    if not charRoot then return end
+
+    -- Only farm Normal and Advanced zones
+    local allowedTiers = {"Normal", "Advanced"}
+
+    if getgenv().currentFarmingFolder and getgenv().currentFarmingFolder.Parent then
+        local aliveTargets = {}
+        for _, obj in ipairs(getgenv().currentFarmingFolder:GetChildren()) do
+            local root = obj:FindFirstChild("HumanoidRootPart")
+            if root then
+                if not needsBoss or obj.Name:lower():find("boss") then
+                    local healthAttr = obj:GetAttribute("Health")
+                    if not healthAttr or healthAttr > 0 then
+                        table.insert(aliveTargets, root)
+                    end
+                end
+            end
+        end
+        if #aliveTargets > 0 then
+            local zonePos = nil
+            local zoneCFrame = nil
+            if getgenv().currentFarmingFolder:IsA("BasePart") then
+                zonePos = getgenv().currentFarmingFolder.Position
+                zoneCFrame = getgenv().currentFarmingFolder.CFrame + Vector3.new(0, 3, 0)
+            elseif getgenv().currentFarmingFolder:IsA("Model") and getgenv().currentFarmingFolder.PrimaryPart then
+                zonePos = getgenv().currentFarmingFolder.PrimaryPart.Position
+                zoneCFrame = getgenv().currentFarmingFolder.PrimaryPart.CFrame + Vector3.new(0, 3, 0)
+            end
+            if zonePos and zoneCFrame then
+                local horizontalDist = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(zonePos.X, 0, zonePos.Z)).Magnitude
+                if horizontalDist > 50 then
+                    charRoot.CFrame = zoneCFrame
+                end
+            end
+            local closestRoot = nil
+            local closestDist = math.huge
+            for _, root in ipairs(aliveTargets) do
+                local d = (charRoot.Position - root.Position).Magnitude
+                if d < closestDist then
+                    closestDist = d
+                    closestRoot = root
+                end
+            end
+            if closestRoot then
+                if closestDist > 50 then
+                    charRoot.CFrame = closestRoot.CFrame + Vector3.new(0, 3, 0)
+                elseif closestDist > 8 then
+                    humanoid:MoveTo(closestRoot.Position)
+                else
+                    humanoid:MoveTo(charRoot.Position)
+                end
+            end
+            return
+        else
+            getgenv().currentFarmingFolder = nil
+        end
+    end
+
+    for _, element in ipairs(ELEMENTS) do
+        local tiers = ElementZones[element]
+        if tiers then
+            for _, tier in ipairs(allowedTiers) do
+                local getter = tiers[tier]
+                if getter then
+                    local ok, folder = pcall(getter)
+                    if ok and folder then
+                        local targets = {}
+                        for _, obj in ipairs(folder:GetChildren()) do
+                            local root = obj:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                if not needsBoss or obj.Name:lower():find("boss") then
+                                    local healthAttr = obj:GetAttribute("Health")
+                                    if not healthAttr or healthAttr > 0 then
+                                        table.insert(targets, root)
+                                    end
+                                end
+                            end
+                        end
+                        if #targets > 0 then
+                            getgenv().currentFarmingFolder = folder
+                            local zoneCFrame = nil
+                            if folder:IsA("BasePart") then
+                                zoneCFrame = folder.CFrame + Vector3.new(0, 3, 0)
+                            elseif folder:IsA("Model") and folder.PrimaryPart then
+                                zoneCFrame = folder.PrimaryPart.CFrame + Vector3.new(0, 3, 0)
+                            end
+                            if zoneCFrame then
+                                charRoot.CFrame = zoneCFrame
+                            end
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ============================================
+-- HELPER: Should we actively farm the boss?
+-- ============================================
+local function shouldFarmBoss()
+    local bossRoot = getBossData()
+    if not bossRoot then return false end -- No boss alive
+    if getgenv().bossQuestHitId and (tick() - getgenv().bossQuestHitTime >= 5) then return false end -- Already hit for 5s
+    return true
+end
+
+-- ============================================
+-- HELPER: Mark boss quest as hit when we start attacking it
+-- ============================================
+local function markBossQuestHit(quests, QuestInfo)
+    if getgenv().bossQuestHitId then return end -- Already marked a boss for this cycle
+    for _, q in pairs(quests) do
+        local cfg = QuestInfo.ClanQuests[q.Id]
+        if cfg and q.Amount < cfg.GoalAmount then
+            local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+            if typeCfg then
+                local ok, txt = pcall(function() return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg) end)
+                if ok and txt and tostring(txt):lower():find("boss") then
+                    getgenv().bossQuestHitId = q.Id
+                    getgenv().bossQuestHitTime = tick()
+                    break
+                end
+            end
+        end
+    end
+end
+
+
+local QUEST_ALLOWED_TIERS = {"Normal", "Advanced"}
+
+function FarmElementBossWithFallback()
+    local char, charRoot, humanoid = getChar()
+    if not charRoot then return end
+
+    forceLoadZones()
+
+    -- STEP 1: Search ONLY Normal and Advanced element zones for an alive element boss
+    for _, element in ipairs(ELEMENTS) do
+        local tiers = ElementZones[element]
+        if tiers then
+            for _, tier in ipairs(QUEST_ALLOWED_TIERS) do -- Restricted to Normal/Advanced only
+                local getter = tiers[tier]
+                if getter then
+                    local ok, folder = pcall(getter)
+                    if ok and folder then
+                        for _, obj in ipairs(folder:GetChildren()) do
+                            local root = obj:FindFirstChild("HumanoidRootPart")
+                            if root and obj.Name:lower():find("boss") then
+                                local healthAttr = obj:GetAttribute("Health")
+                                if not healthAttr or healthAttr > 0 then
+                                    -- Found alive element boss! Walk to it
+                                    local d = (charRoot.Position - root.Position).Magnitude
+                                    if d > 50 then
+                                        charRoot.CFrame = root.CFrame + Vector3.new(0, 3, 0)
+                                    elseif d > 8 then
+                                        humanoid:MoveTo(root.Position)
+                                    else
+                                        humanoid:MoveTo(charRoot.Position)
+                                    end
+                                    getgenv().currentFarmingFolder = folder
+                                    qprint("Element boss found! Walking to it.")
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- STEP 2: No element boss alive anywhere - farm small mobs to spawn one
+    qprint("No element boss alive. Farming small mobs to spawn one...")
+    getgenv().currentFarmingFolder = nil
+    FarmAnyAvailableElement(false)
+end
+
+-- ============================================
+-- MAIN AUTO QUEST LOOP (FIXED)
+-- ============================================
+getgenv().questDungeonActive = false
+
+local function startQuestDungeonAutomation()
+    if not getgenv().questDungeonActive then
+        getgenv().questDungeonActive = true
+        qprint("Auto-activating Dungeon features for Quest")
+        getgenv().autoJoinDungeon = true; autoJoinDungeon()
+        getgenv().autoFarmDungeon = true; autoFarmDungeon()
+        getgenv().autoDungeonRewards = true; autoCollectDungeonRewards()
+        getgenv().autoIncubateDungeonEgg = true; autoIncubateDungeonEgg()
+        getgenv().autoClaimIncubated = true; autoClaimIncubatedPet()
+    end
+end
+
+local function stopQuestDungeonAutomation()
+    if getgenv().questDungeonActive then
+        getgenv().questDungeonActive = false
+        qprint("Quest done, deactivating Auto-Dungeon features")
+        getgenv().autoJoinDungeon = false
+        getgenv().autoFarmDungeon = false
+        getgenv().autoDungeonRewards = false
+        getgenv().autoIncubateDungeonEgg = false
+        getgenv().autoClaimIncubated = false
+    end
+end
+
+getgenv().questEggActive = false
+
+local function startQuestEggAutomation()
+    if not getgenv().questEggActive then
+        getgenv().questEggActive = true
+        qprint("Auto-activating Egg features for Quest")
+        getgenv().autoOpenEgg = true; autoOpenEgg()
+    end
+end
+
+local function stopQuestEggAutomation()
+    if getgenv().questEggActive then
+        getgenv().questEggActive = false
+        qprint("Quest done, deactivating Auto-Egg features")
+        getgenv().autoOpenEgg = false
+    end
+end
+
+getgenv().questCommitment = nil
+getgenv().questCommitmentIds = {}
+
+function startAutoQuestLoop()
+    task.spawn(function()
+        qprint("Quest loop started")
+
+        while getgenv().autoQuestExecute do
+
+            local success, err = pcall(function()
+
+                -- SAFETY: Prevent errors if Gameplay hasn't loaded yet (teleporting/dungeons)
+                if not workspace:FindFirstChild("Gameplay") then
+                    return
+                end
+
+                local ClientDataManager = require(Players.LocalPlayer.PlayerScripts.MainClient.ClientDataManager)
+                local QuestInfo = require(ReplicatedStorage.Modules.QuestInfo)
+                local DateTimeManager = require(Players.LocalPlayer.PlayerScripts.MainClient.DateTimeManager)
+
+                local quests = ClientDataManager.Data and ClientDataManager.Data.ClanQuests
+                if not quests then task.wait(1) return end
+
+                -- 1. Claim completed quests
+                for questIndex, q in pairs(quests) do
+                    local cfg = QuestInfo.ClanQuests[q.Id]
+                    if cfg and q.Amount >= cfg.GoalAmount then
+                        qprint("Quest completed! Claiming reward for index:", questIndex)
+                        pcall(function()
+                            ReplicatedStorage.Events.UIAction:FireServer("ClaimClanQuest", questIndex)
+                        end)
+
+                        -- FORCE STOP Dungeon/Egg automation the moment a quest completes so we don't get stuck!
+                        stopQuestDungeonAutomation()
+                        stopQuestEggAutomation()
+
+                        getgenv().questCommitment = nil
+                        getgenv().questCommitmentIds = {}
+                        getgenv().flagCooldownUntil = 0
+                        getgenv().bossQuestHitTime = 0
+                        getgenv().bossQuestHitId = nil
+
+                        -- Wait slightly longer for server to register the claim and give new quests
+                        task.wait(1.5)
+                        return
+                    end
+                end
+
+                -- 2. Scan all available quests
+                local activeQuests = {
+                    element = false,
+                    elementboss = false,
+                    boss = false,
+                    egg = false,
+                    dungeon = false,
+                    koth = false,
+                    flag = false
+                }
+
+                local hardestDungeonDifficulty = 0
+
+                for questIndex, q in pairs(quests) do
+                    local cfg = QuestInfo.ClanQuests[q.Id]
+
+                    if cfg and q.Amount < cfg.GoalAmount then
+                        local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+                        local text = ""
+
+                        if typeCfg then
+                            local ok, txt = pcall(function()
+                                return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg)
+                            end)
+                            if ok and txt then
+                                text = tostring(txt):lower()
+                            else
+                                text = tostring(cfg.QuestType):lower()
+                            end
+                        end
+
+                        local detectedType = nil
+                        if text:find("element") and text:find("boss") then detectedType = "elementboss"
+                        elseif text:find("fire") or text:find("water") or text:find("earth") or text:find("plasma") or text:find("element") then detectedType = "element"
+                        elseif text:find("boss") then detectedType = "boss"
+                        elseif text:find("egg") or text:find("hatch") then detectedType = "egg"
+                        elseif text:find("dungeon") then detectedType = "dungeon"
+                        elseif text:find("koth") or text:find("king of the hill") then detectedType = "koth"
+                        elseif text:find("flag") then detectedType = "flag"
+                        end
+
+                        if detectedType then
+                            local skip = false
+                            if detectedType == "element" and getgenv().skipElementQuest then skip = true end
+                            if detectedType == "elementboss" and getgenv().skipElementQuest then skip = true end
+                            if detectedType == "boss" and getgenv().skipBossQuest then skip = true end
+                            if detectedType == "egg" and getgenv().skipEggQuest then skip = true end
+                            if detectedType == "dungeon" and getgenv().skipDungeonQuest then skip = true end
+                            if detectedType == "koth" and getgenv().skipKOTHQuest then skip = true end
+                            if detectedType == "flag" and getgenv().skipFlagQuest then skip = true end
+
+                            if detectedType == "flag" and tick() < getgenv().flagCooldownUntil then skip = true end
+
+                            if detectedType == "dungeon" then
+                                local cooldownEnd = ClientDataManager.Data and ClientDataManager.Data.DungeonCooldownEndDT or 0
+                                if DateTimeManager:Now() < cooldownEnd then skip = true end
+
+                                local diff = 1
+                                if text:find("impossible") then diff = 4
+                                elseif text:find("hard") then diff = 3
+                                elseif text:find("medium") then diff = 2
+                                end
+                                if diff > hardestDungeonDifficulty then
+                                    hardestDungeonDifficulty = diff
+                                end
+                            end
+
+                            if detectedType == "boss" and getgenv().bossQuestHitId == q.Id and (tick() - getgenv().bossQuestHitTime >= 5) then
+                                skip = true
+                            end
+
+                            if not skip then
+                                activeQuests[detectedType] = true
+                            end
+                        end
+                    end
+                end
+
+                -- 3. Commitment Logic
+                if getgenv().questCommitment == "dungeon" then
+                    local shouldBreak = false
+                    if getgenv().skipDungeonQuest then shouldBreak = true end
+
+                    local cooldownEnd = ClientDataManager.Data and ClientDataManager.Data.DungeonCooldownEndDT or 0
+                    if DateTimeManager:Now() < cooldownEnd then shouldBreak = true end
+
+                    local anyDungeonActive = false
+                    for _, q in pairs(quests) do
+                        local cfg = QuestInfo.ClanQuests[q.Id]
+                        if cfg and q.Amount < cfg.GoalAmount then
+                            local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+                            if typeCfg then
+                                local ok, txt = pcall(function() return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg) end)
+                                if ok and txt and tostring(txt):lower():find("dungeon") then
+                                    anyDungeonActive = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if not anyDungeonActive then shouldBreak = true end
+
+                    if shouldBreak then
+                        qprint("Breaking dungeon commitment!")
+                        getgenv().questCommitment = nil
+                        getgenv().questCommitmentIds = {}
+                        stopQuestDungeonAutomation()
+                    else
+                        if not getgenv().autoFarmDungeon then
+                            qprint("Dungeon commitment active, ensuring all Dungeon features are ON")
+                            getgenv().autoJoinDungeon = true; autoJoinDungeon()
+                            getgenv().autoFarmDungeon = true; autoFarmDungeon()
+                            getgenv().autoDungeonRewards = true; autoCollectDungeonRewards()
+                            getgenv().autoIncubateDungeonEgg = true; autoIncubateDungeonEgg()
+                            getgenv().autoClaimIncubated = true; autoClaimIncubatedPet()
+                        end
+                        QuestFarmDungeon()
+                        return
+                    end
+
+                elseif getgenv().questCommitment == "egg" then
+                    local shouldBreak = false
+                    if getgenv().skipEggQuest then shouldBreak = true end
+                    local anyEggActive = false
+                    for _, q in pairs(quests) do
+                        local cfg = QuestInfo.ClanQuests[q.Id]
+                        if cfg and q.Amount < cfg.GoalAmount then
+                            local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+                            if typeCfg then
+                                local ok, txt = pcall(function() return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg) end)
+                                if ok and txt and (tostring(txt):lower():find("egg") or tostring(txt):lower():find("hatch")) then
+                                    anyEggActive = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if not anyEggActive then shouldBreak = true end
+                    if shouldBreak then
+                        qprint("Breaking egg commitment!")
+                        getgenv().questCommitment = nil
+                        getgenv().questCommitmentIds = {}
+                        stopQuestEggAutomation()
+                    else
+                        return
+                    end
+                end
+
+                -- 4. Intelligent Multitasking Combinations
+
+                if activeQuests.boss and activeQuests.elementboss then
+                    stopKothElementTimeShare()
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+
+                    if shouldFarmBoss() then
+                        markBossQuestHit(quests, QuestInfo)
+                        QuestFarmBossWalk()
+                    else
+                        FarmElementBossWithFallback()
+                    end
+                    return
+
+                elseif activeQuests.boss and activeQuests.element then
+                    stopKothElementTimeShare()
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+
+                    if shouldFarmBoss() then
+                        markBossQuestHit(quests, QuestInfo)
+                        QuestFarmBossWalk()
+                    else
+                        FarmAnyAvailableElement(false)
+                    end
+                    return
+
+                elseif activeQuests.boss and activeQuests.koth then
+                    stopKothElementTimeShare()
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+
+                    if shouldFarmBoss() then
+                        markBossQuestHit(quests, QuestInfo)
+                        QuestFarmBossWalk()
+                    else
+                        QuestFarmKOTH()
+                    end
+                    return
+
+                elseif activeQuests.koth and activeQuests.element then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    startKothElementTimeShare()
+                    return
+
+                elseif activeQuests.koth and activeQuests.elementboss then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    startKothElementTimeShare()
+                    return
+
+                else
+                    stopKothElementTimeShare()
+                end
+
+                -- 5. Single Quest Fallbacks
+
+                if activeQuests.dungeon then
+                    getgenv().questCommitment = "dungeon"
+                    getgenv().questCommitmentIds = {}
+
+                    for _, q in pairs(quests) do
+                        local cfg = QuestInfo.ClanQuests[q.Id]
+                        if cfg and q.Amount < cfg.GoalAmount then
+                            local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+                            if typeCfg then
+                                local ok, txt = pcall(function() return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg) end)
+                                if ok and txt and tostring(txt):lower():find("dungeon") then
+                                    table.insert(getgenv().questCommitmentIds, q.Id)
+                                end
+                            end
+                        end
+                    end
+
+                    if hardestDungeonDifficulty > 0 then
+                        getgenv().SelectedDifficulty = hardestDungeonDifficulty
+                        local diffNames = {[1] = "Easy", [2] = "Medium", [3] = "Hard", [4] = "Impossible"}
+                        qprint("Hardest dungeon difficulty:", diffNames[hardestDungeonDifficulty] or hardestDungeonDifficulty)
+                    end
+
+                    stopQuestEggAutomation()
+                    getgenv().autoJoinDungeon = true; autoJoinDungeon()
+                    getgenv().autoFarmDungeon = true; autoFarmDungeon()
+                    getgenv().autoDungeonRewards = true; autoCollectDungeonRewards()
+                    getgenv().autoIncubateDungeonEgg = true; autoIncubateDungeonEgg()
+                    getgenv().autoClaimIncubated = true; autoClaimIncubatedPet()
+                    QuestFarmDungeon()
+
+                elseif activeQuests.egg then
+                    getgenv().questCommitment = "egg"
+                    getgenv().questCommitmentIds = {}
+                    for _, q in pairs(quests) do
+                        local cfg = QuestInfo.ClanQuests[q.Id]
+                        if cfg and q.Amount < cfg.GoalAmount then
+                            local typeCfg = QuestInfo.QuestTypes[cfg.QuestType]
+                            if typeCfg then
+                                local ok, txt = pcall(function() return typeCfg.InfoText(q.Amount, cfg.GoalAmount, cfg) end)
+                                if ok and txt and (tostring(txt):lower():find("egg") or tostring(txt):lower():find("hatch")) then
+                                    table.insert(getgenv().questCommitmentIds, q.Id)
+                                end
+                            end
+                        end
+                    end
+                    stopQuestDungeonAutomation()
+                    startQuestEggAutomation()
+
+                elseif activeQuests.flag then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    QuestFarmFlags()
+
+                elseif activeQuests.koth then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    QuestFarmKOTH()
+
+                elseif activeQuests.elementboss then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    FarmElementBossWithFallback()
+
+                elseif activeQuests.element then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    FarmAnyAvailableElement(false)
+
+                elseif activeQuests.boss then
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+
+                    if shouldFarmBoss() then
+                        markBossQuestHit(quests, QuestInfo)
+                        QuestFarmBossWalk()
+                    else
+                        qprint("Boss hit for 5s. Waiting for timer...")
+                        task.wait(1)
+                    end
+
+                else
+                    stopQuestDungeonAutomation()
+                    stopQuestEggAutomation()
+                    getgenv().currentFarmingFolder = nil
+                    task.wait(1)
+                end
+            end)
+
+            if not success then
+                -- Only warn if it's NOT the Gameplay loading error (we expect that one during teleports)
+                if not tostring(err):find("Gameplay is not a valid member") then
+                    qwarn("Quest loop error:", err)
+                end
+            end
+
+            task.wait(0.1)
+        end
+
+        -- Cleanup
+        stopKothElementTimeShare()
+        stopQuestDungeonAutomation()
+        stopQuestEggAutomation()
+        getgenv().currentFarmingFolder = nil
+        getgenv().currentFarmingFlagBase = nil
+        getgenv().questCommitment = nil
+        getgenv().questCommitmentIds = {}
+        getgenv().bossQuestHitTime = 0
+        getgenv().bossQuestHitId = nil
+
+        pcall(function()
+            local char = Players.LocalPlayer.Character
+            if char then
+                local charRoot = char:FindFirstChild("HumanoidRootPart")
+                if charRoot then charRoot.Anchored = false end
+            end
+        end)
+
+        updateGlobalHitSpoof()
+        qprint("Quest loop stopped")
+    end)
+end
+
+-- QUEST & PRIORITY FUNCTIONS
+function getHighestPriorityQuest()
+    local quests = {
+        { name = "Dungeon Farm", priority = 100, enabled = function() return getgenv().autoFarmDungeon end, available = function() return true end },
+        { name = "Boss Killer Premium Walk", priority = 95, enabled = function() return getgenv().autoWalkBossPremium end, available = function() return true end },
+        { name = "Boss Killer (Bring)", priority = 94, enabled = function() return getgenv().autoBringBoss end, available = function() return true end },
+        { name = "Boss Killer (Teleport)", priority = 93, enabled = function() return getgenv().autoTeleportToBoss end, available = function() return true end },
+        { name = "Event Boss Walk", priority = 85, enabled = function() return getgenv().autoWalkEventBoss end, available = function() return true end },
+        { name = "Event Boss (Teleport)", priority = 84, enabled = function() return getgenv().autoTeleportToEventBoss end, available = function() return true end },
+        { name = "Fire Elements", priority = 79, enabled = function() return getgenv().autoFarmFireNormal or getgenv().autoFarmFireAdvanced or getgenv().autoFarmFireMaster or getgenv().autoFarmFireGrandmaster end, available = function() return true end },
+        { name = "Water Elements", priority = 78, enabled = function() return getgenv().autoFarmWaterNormal or getgenv().autoFarmWaterAdvanced or getgenv().autoFarmWaterMaster or getgenv().autoFarmWaterGrandmaster end, available = function() return true end },
+        { name = "Earth Elements", priority = 77, enabled = function() return getgenv().autoFarmEarthNormal or getgenv().autoFarmEarthAdvanced or getgenv().autoFarmEarthMaster or getgenv().autoFarmEarthGrandmaster end, available = function() return true end },
+        { name = "Plasma Elements", priority = 76, enabled = function() return getgenv().autoFarmPlasmaNormal or getgenv().autoFarmPlasmaAdvanced or getgenv().autoFarmPlasmaMaster or getgenv().autoFarmPlasmaGrandmaster end, available = function() return true end },
+        { name = "Auto Complete Petdex", priority = 60, enabled = function() return getgenv().autoCompletePetdex end, available = function() return true end },
+        { name = "Auto Open Egg", priority = 50, enabled = function() return getgenv().autoOpenEgg end, available = function() return true end },
+        { name = "Auto Equip Pets", priority = 40, enabled = function() return getgenv().autoEquipBestPets or getgenv().autoEquipBestEventPets end, available = function() return true end },
+        { name = "Auto Sell DNA", priority = 30, enabled = function() return getgenv().autoSellDNA end, available = function() return true end },
+        { name = "Auto Swing", priority = 20, enabled = function() return getgenv().autoSwing end, available = function() return true end },
+        { name = "Auto Collect Crowns", priority = 10, enabled = function() return getgenv().autoCrowns end, available = function() return true end }
+    }
+    table.sort(quests, function(a, b) return a.priority > b.priority end)
+    for _, quest in pairs(quests) do
+        local isEnabled = pcall(quest.enabled)
+        local isAvailable = pcall(quest.available)
+        if isEnabled and isAvailable then
+            return quest
+        end
+    end
+    return nil
+end
+
+function printPriorityDebug()
+    local quests = {
+        { name = "Dungeon Farm", priority = 100, enabled = function() return getgenv().autoFarmDungeon end, available = function() return true end },
+        { name = "Boss Killer Premium Walk", priority = 95, enabled = function() return getgenv().autoWalkBossPremium end, available = function() return true end },
+        { name = "Boss Killer (Bring)", priority = 94, enabled = function() return getgenv().autoBringBoss end, available = function() return true end },
+        { name = "Boss Killer (Teleport)", priority = 93, enabled = function() return getgenv().autoTeleportToBoss end, available = function() return true end },
+        { name = "Event Boss Walk", priority = 85, enabled = function() return getgenv().autoWalkEventBoss end, available = function() return true end },
+        { name = "Event Boss (Teleport)", priority = 84, enabled = function() return getgenv().autoTeleportToEventBoss end, available = function() return true end },
+        { name = "Fire Elements", priority = 79, enabled = function() return getgenv().autoFarmFireNormal or getgenv().autoFarmFireAdvanced or getgenv().autoFarmFireMaster or getgenv().autoFarmFireGrandmaster end, available = function() return true end },
+        { name = "Water Elements", priority = 78, enabled = function() return getgenv().autoFarmWaterNormal or getgenv().autoFarmWaterAdvanced or getgenv().autoFarmWaterMaster or getgenv().autoFarmWaterGrandmaster end, available = function() return true end },
+        { name = "Earth Elements", priority = 77, enabled = function() return getgenv().autoFarmEarthNormal or getgenv().autoFarmEarthAdvanced or getgenv().autoFarmEarthMaster or getgenv().autoFarmEarthGrandmaster end, available = function() return true end },
+        { name = "Plasma Elements", priority = 76, enabled = function() return getgenv().autoFarmPlasmaNormal or getgenv().autoFarmPlasmaAdvanced or getgenv().autoFarmPlasmaMaster or getgenv().autoFarmPlasmaGrandmaster end, available = function() return true end },
+        { name = "Auto Complete Petdex", priority = 60, enabled = function() return getgenv().autoCompletePetdex end, available = function() return true end },
+        { name = "Auto Open Egg", priority = 50, enabled = function() return getgenv().autoOpenEgg end, available = function() return true end },
+        { name = "Auto Equip Pets", priority = 40, enabled = function() return getgenv().autoEquipBestPets or getgenv().autoEquipBestEventPets end, available = function() return true end },
+        { name = "Auto Sell DNA", priority = 30, enabled = function() return getgenv().autoSellDNA end, available = function() return true end },
+        { name = "Auto Swing", priority = 20, enabled = function() return getgenv().autoSwing end, available = function() return true end },
+        { name = "Auto Collect Crowns", priority = 10, enabled = function() return getgenv().autoCrowns end, available = function() return true end }
+    }
+    table.sort(quests, function(a, b) return a.priority > b.priority end)
+    print("================ Priority Debug ================")
+    print(string.format("%-35s %-8s %-10s %-10s", "Action", "Priority", "Enabled", "Available"))
+    print(string.rep("-", 65))
+    local currentQuest = getHighestPriorityQuest()
+    for _, quest in pairs(quests) do
+        local isEnabled = pcall(quest.enabled)
+        local isAvailable = pcall(quest.available)
+        local selected = ""
+        if currentQuest and currentQuest.name == quest.name then selected = " <--" end
+        print(string.format("%-35s %-8d %-10s %-10s%s", quest.name, quest.priority, tostring(isEnabled), tostring(isAvailable), selected))
+    end
+    print("================================================\n")
+    if currentQuest then
+        print("CURRENT: " .. currentQuest.name .. " (Priority: " .. currentQuest.priority .. ")")
+    else
+        print("NO ACTION SELECTED")
+    end
+end
