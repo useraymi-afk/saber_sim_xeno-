@@ -1,3 +1,51 @@
+-- [[ SABER SIMULATOR ULTRA HUB - REMOTE SOURCE ]] --
+
+-- 1. Инициализация GUI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- 2. Глобальные настройки
+getgenv().SaberConfig = {
+    AutoSwing = false,
+    AutoSell = false,
+    AutoQuest = false,
+    DungeonActive = false,
+    SelectedEgg = "Wooden Egg",
+    SelectedDifficulty = 1,
+    WalkSpeed = 45
+}
+
+-- 3. Основные переменные игры
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local lp = Players.LocalPlayer
+
+-- [[ ЧАСТЬ 3: ФУНКЦИИ ЛОГИКИ ]] --
+
+-- Авто-Свинг
+local function runAutoSwing()
+    local clientTool = require(lp.PlayerScripts.MainClient.ClientTool)
+    task.spawn(function()
+        while getgenv().SaberConfig.AutoSwing do
+            if lp.Character then
+                local tool = lp.Character:FindFirstChildOfClass("Tool")
+                if tool then clientTool:Swing() end
+            end
+            task.wait(0.05)
+        end
+    end)
+end
+
+-- Авто-Продажа
+local function runAutoSell()
+    task.spawn(function()
+        while getgenv().SaberConfig.AutoSell do
+            ReplicatedStorage.Events.SellStrength:FireServer()
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- ВАЖНО: Сюда нужно вставить все остальные функции из твоего самого первого сообщения 
 -- ============================================
 -- SERVICES & VARIABLES
 -- ============================================
@@ -2924,3 +2972,71 @@ function printPriorityDebug()
         print("NO ACTION SELECTED")
     end
 end
+-- Для краткости я подключаю основные элементы GUI ниже.
+
+-- [[ ЧАСТЬ 4: СОЗДАНИЕ ИНТЕРФЕЙСА ]] --
+local Window = Rayfield:CreateWindow({
+   Name = "Saber Simulator | Remote Hub",
+   LoadingTitle = "Загрузка кода с GitHub...",
+   LoadingSubtitle = "v1.0.2",
+   ConfigurationSaving = { Enabled = true, FolderName = "SaberSim", FileName = "Config" },
+   KeySystem = false
+})
+
+local TabMain = Window:CreateTab("🏠 Главное", 4483362458)
+local TabFarm = Window:CreateTab("⚔️ Фарм", 4483362458)
+local TabDungeon = Window:CreateTab("🏰 Данжи", 4483362458)
+
+TabMain:CreateSection("Автоматизация")
+
+TabMain:CreateToggle({
+   Name = "Авто-Взмахи",
+   CurrentValue = false,
+   Callback = function(Value)
+      getgenv().SaberConfig.AutoSwing = Value
+      if Value then runAutoSwing() end
+   end,
+})
+
+TabMain:CreateToggle({
+   Name = "Авто-Продажа",
+   CurrentValue = false,
+   Callback = function(Value)
+      getgenv().SaberConfig.AutoSell = Value
+      if Value then runAutoSell() end
+   end,
+})
+
+TabFarm:CreateSection("Клановые Квесты")
+TabFarm:CreateToggle({
+   Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ",
+   CurrentValue = false,
+   Callback = function(Value)
+      getgenv().SaberConfig.AutoQuest = Value
+      if Value then 
+          -- Тут вызывается твоя функция startAutoQuestLoop()
+          if startAutoQuestLoop then startAutoQuestLoop() end 
+      end
+   end,
+})
+
+TabDungeon:CreateSection("Данжи")
+TabDungeon:CreateToggle({
+   Name = "Авто-Данж (Вход+Фарм)",
+   CurrentValue = false,
+   Callback = function(Value)
+      getgenv().SaberConfig.DungeonActive = Value
+      if Value then
+          -- Вызов твоих функций данжа
+          if autoJoinDungeon then autoJoinDungeon() end
+          if autoFarmDungeon then autoFarmDungeon() end
+      end
+   end,
+})
+
+Rayfield:Notify({
+   Title = "Успешно!",
+   Content = "Код загружен из репозитория: useraymi-afk",
+   Duration = 5,
+   Image = 4483362458,
+})
