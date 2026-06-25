@@ -1,9 +1,9 @@
--- [[ SABER SIMULATOR ULTRA HUB | FULLY CLEANED & MERGED ]] --
+-- [[ SABER SIMULATOR ULTRA HUB | FIXED & CLEAN ]] --
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- ============================================
--- 1. СЕРВИСЫ (ЕДИНЫЙ БЛОК)
+-- 1. СЕРВИСЫ
 -- ============================================
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -17,7 +17,7 @@ local lp = Players.LocalPlayer
 local Character = lp.Character or lp.CharacterAdded:Wait()
 
 -- ============================================
--- 2. ГЛОБАЛЬНЫЙ КОНФИГ
+-- 2. ГЛОБАЛЬНЫЙ КОНФИГ (БЕЗ METATABLE)
 -- ============================================
 getgenv().SaberConfig = {
     AutoSwing = false,
@@ -25,35 +25,30 @@ getgenv().SaberConfig = {
     AutoQuest = false,
     DungeonActive = false,
     AutoCrowns = false,
-    AutoDaily = false,
     WalkSpeedValue = 45,
     SelectedEgg = "Wooden Egg",
     SelectedDungeon = "Space",
     SelectedDifficulty = 1,
     DunFarmingDistance = 9,
-    -- Пропуски
+    -- Флаги для совместимости с твоими функциями
     skipDungeonQuest = false,
     skipEggQuest = false,
     skipBossQuest = false
 }
 
--- Мостик совместимости (чтобы старый код понимал новый конфиг)
-setmetatable(getgenv(), {
-    __index = function(t, k)
-        local c = rawget(t, "SaberConfig")
-        if k == "autoSwing" then return c.AutoSwing end
-        if k == "autoSellDNA" then return c.AutoSell end
-        if k == "autoQuestExecute" then return c.AutoQuest end
-        if k == "autoFarmDungeon" then return c.DungeonActive end
-        if k == "autoCrowns" then return c.AutoCrowns end
-        if k == "SelectedEggIsHere" then return c.SelectedEgg end
-        return rawget(t, k)
-    end
-})
+-- ============================================
+-- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (HELPERS)
+-- ============================================
+function getBossData()
+    local gameplay = workspace:FindFirstChild("Gameplay")
+    local bossFolder = gameplay and gameplay:FindFirstChild("Boss")
+    local holder = bossFolder and bossFolder:FindFirstChild("BossHolder")
+    local model = holder and holder:FindFirstChildOfClass("Model")
+    if not model then return nil end
+    return model:FindFirstChild("HumanoidRootPart")
+end
 
--- ============================================
--- 3. GLOBAL HIT SPOOF (ХУК НА УРОН)
--- ============================================
+-- Хук на урон (Hit Spoof)
 pcall(function()
     local HitDetection = require(lp.PlayerScripts.MainClient.ClientTool.HitDetection)
     if not getgenv().oldGetHits then getgenv().oldGetHits = HitDetection.GetBossesAndMobsHit end
@@ -62,8 +57,7 @@ pcall(function()
             local hitAll = {}
             local seen = {}
             for _, tag in ipairs({"Boss", "EventBoss", "Mob", "DungeonEnemy"}) do
-                local tagged = CollectionService:GetTagged(tag)
-                for _, mob in ipairs(tagged) do
+                for _, mob in ipairs(CollectionService:GetTagged(tag)) do
                     if mob and mob.Parent and not seen[mob] then
                         local hrp = mob:FindFirstChild("HumanoidRootPart")
                         if hrp and (mob:GetAttribute("Health") or 1) > 0 then
@@ -80,7 +74,7 @@ pcall(function()
 end)
 
 -- ============================================
--- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЦИКЛЫ
+-- 4. ФОНОВЫЕ ЦИКЛЫ
 -- ============================================
 
 -- Авто-взмахи
@@ -127,50 +121,27 @@ task.spawn(function()
     end
 end)
 
--- Анти-АФК
-function removeIdleConnections()
-    for _, connection in pairs(getconnections(lp.Idled)) do
-        connection:Disable()
-    end
-end
-
--- Логика квестов и данжей (взято из твоего кода и адаптировано)
-function getBossData()
-    local gameplay = workspace:FindFirstChild("Gameplay")
-    local bossFolder = gameplay and gameplay:FindFirstChild("Boss")
-    local holder = bossFolder and bossFolder:FindFirstChild("BossHolder")
-    local model = holder and holder:FindFirstChildOfClass("Model")
-    return model and model:FindFirstChild("HumanoidRootPart")
-end
+-- Анти-АФК (фикс вылетов)
+lp.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0,0))
+end)
 
 -- ============================================
--- 5. ОСНОВНЫЕ ФУНКЦИИ (ДАНЖИ / КВЕСТЫ)
+-- 5. ЛОГИКА КВЕСТОВ И ДАНЖЕЙ (ТВОИ ФУНКЦИИ)
 -- ============================================
--- [Здесь должны быть твои функции autoJoinDungeon, startAutoQuestLoop и т.д.]
--- Я оставлю их заглушки, чтобы GUI работал, убедись что они есть ниже в твоем файле.
+
+-- ВСТАВЬ СВОЮ ФУНКЦИЮ startAutoQuestLoop СЮДА (если она большая)
+-- Убедись, что внутри неё ты заменил 'getgenv().autoQuestExecute' на 'getgenv().SaberConfig.AutoQuest'
 
 function autoJoinDungeon()
-    task.spawn(function()
-        while getgenv().SaberConfig.DungeonActive do
-            pcall(function()
-                local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
-                local isInDungeon = false
-                if dungeonStorage then
-                    for _, folder in pairs(dungeonStorage:GetChildren()) do
-                        if #folder:GetChildren() > 0 then isInDungeon = true; break end
-                    end
-                end
-                if not isInDungeon then
-                    local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
-                    local dateTimeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
-                    if dateTimeManager:Now() >= (dataManager.Data.DungeonCooldownEndDT or 0) then
-                        ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", getgenv().SaberConfig.SelectedDungeon, getgenv().SaberConfig.SelectedDifficulty)
-                        task.wait(1.5)
-                        ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
-                    end
-                end
-            end)
-            task.wait(3)
+    pcall(function()
+        local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+        local timeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
+        if timeManager:Now() >= (dataManager.Data.DungeonCooldownEndDT or 0) then
+            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", getgenv().SaberConfig.SelectedDungeon, getgenv().SaberConfig.SelectedDifficulty)
+            task.wait(1.5)
+            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
         end
     end)
 end
@@ -180,14 +151,14 @@ end
 -- ============================================
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
-   Name = "Saber Simulator | Remote Hub",
-   LoadingTitle = "Загрузка скрипта...",
-   ConfigurationSaving = { Enabled = true, FolderName = "SaberSim" },
+   Name = "Saber Simulator | Ultra Hub",
+   LoadingTitle = "Загрузка с GitHub...",
+   ConfigurationSaving = { Enabled = true, FolderName = "SaberConfig" },
    KeySystem = false
 })
 
 local TabMain = Window:CreateTab("🏠 Главное", 4483362458)
-local TabQuest = Window:CreateTab("📜 Квесты", 4483362458)
+local TabFarm = Window:CreateTab("⚔️ Фарм", 4483362458)
 local TabDungeon = Window:CreateTab("🏰 Данжи", 4483362458)
 
 -- ГЛАВНОЕ
@@ -209,13 +180,13 @@ TabMain:CreateToggle({
 })
 
 -- КВЕСТЫ
-TabQuest:CreateSection("Клановые квесты")
-TabQuest:CreateToggle({
-   Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ (Smart)",
+TabFarm:CreateSection("Клановые квесты")
+TabFarm:CreateToggle({
+   Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ",
    CurrentValue = false,
    Callback = function(v) 
       getgenv().SaberConfig.AutoQuest = v 
-      if v then task.spawn(startAutoQuestLoop) end 
+      if v and startAutoQuestLoop then task.spawn(startAutoQuestLoop) end
    end,
 })
 
@@ -232,13 +203,15 @@ TabDungeon:CreateToggle({
    CurrentValue = false,
    Callback = function(v) 
       getgenv().SaberConfig.DungeonActive = v 
-      if v then autoJoinDungeon() end
+      if v then 
+         task.spawn(function()
+            while getgenv().SaberConfig.DungeonActive do
+                autoJoinDungeon()
+                task.wait(10)
+            end
+         end)
+      end
    end,
 })
 
-Rayfield:Notify({
-   Title = "Hub Loaded!",
-   Content = "Приятной игры, " .. lp.DisplayName,
-   Duration = 5,
-   Image = 4483362458,
-})
+Rayfield:Notify({ Title = "Hub Loaded!", Content = "Приятной игры!", Duration = 5 })
