@@ -1,10 +1,8 @@
 -- [[ SABER SIMULATOR ULTRA HUB | GitHub Source ]] --
-
--- Ожидание загрузки
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- ============================================
--- 1. НАСТРОЙКИ (СЮДА СМОТРЯТ КНОПКИ)
+-- 1. НАСТРОЙКИ (СЮДА СМОТРЯТ КНОПКИ ГУИ)
 -- ============================================
 getgenv().SaberConfig = {
     AutoSwing = false,
@@ -13,73 +11,25 @@ getgenv().SaberConfig = {
     DungeonActive = false,
     AutoCrowns = false,
     WalkSpeed = 45,
-    SelectedEgg = "Wooden Egg"
 }
 
--- [[ МОСТИК ДЛЯ СОВМЕСТИМОСТИ ]] --
--- Этот код делает так, чтобы старые функции видели нажатия новых кнопок
+-- [[ МОСТИК СОВМЕСТИМОСТИ ]] --
+-- Этот код заставляет твои старые функции (которые ищут getgenv().autoSwing) 
+-- видеть значения из новых кнопок (getgenv().SaberConfig.AutoSwing).
 setmetatable(getgenv(), {
     __index = function(t, k)
-        if k == "autoSwing" then return getgenv().SaberConfig.AutoSwing end
-        if k == "autoSellDNA" then return getgenv().SaberConfig.AutoSell end
-        if k == "autoQuestExecute" then return getgenv().SaberConfig.AutoQuest end
-        if k == "autoFarmDungeon" then return getgenv().SaberConfig.DungeonActive end
-        if k == "autoCrowns" then return getgenv().SaberConfig.AutoCrowns end
+        local config = rawget(t, "SaberConfig")
+        if not config then return rawget(t, k) end
+        if k == "autoSwing" then return config.AutoSwing end
+        if k == "autoSellDNA" then return config.AutoSell end
+        if k == "autoQuestExecute" then return config.AutoQuest end
+        if k == "autoFarmDungeon" then return config.DungeonActive end
+        if k == "autoCrowns" then return config.AutoCrowns end
         return rawget(t, k)
     end
 })
 
 -- ============================================
--- 2. СЕРВИСЫ
--- ============================================
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
-local lp = Players.LocalPlayer
-
--- ============================================
--- 3. ВСЕ ТВОИ ФУНКЦИИ (ЛОГИКА)
--- ============================================
-
--- [HIT SPOOF ДЛЯ УРОНА]
-pcall(function()
-    local HitDetection = require(lp.PlayerScripts.MainClient.ClientTool.HitDetection)
-    if not getgenv().oldGetHits then getgenv().oldGetHits = HitDetection.GetBossesAndMobsHit end
-    HitDetection.GetBossesAndMobsHit = function(self, player)
-        if getgenv().SaberConfig.AutoQuest or getgenv().SaberConfig.DungeonActive then
-            local hitAll = {}
-            local seen = {}
-            for _, tag in ipairs({"Boss", "EventBoss", "Mob", "DungeonEnemy"}) do
-                for _, mob in ipairs(CollectionService:GetTagged(tag)) do
-                    if mob and mob.Parent and not seen[mob] then
-                        local hrp = mob:FindFirstChild("HumanoidRootPart")
-                        if hrp and (mob:GetAttribute("Health") or 1) > 0 then
-                            seen[mob] = true; table.insert(hitAll, mob)
-                        end
-                    end
-                end
-            end
-            return hitAll
-        end
-        return getgenv().oldGetHits(self, player)
-    end
-end)
-
--- Тут идут все твои функции (я добавил основные для примера, остальные у тебя в файле)
-function autoSwingLoop()
-    local clientTool = require(lp.PlayerScripts.MainClient.ClientTool)
-    task.spawn(function()
-        while true do
-            if getgenv().SaberConfig.AutoSwing and lp.Character then
-                local tool = lp.Character:FindFirstChildOfClass("Tool")
-                if tool then clientTool:Swing() end
-            end
-            task.wait(0.05)
-        end
-    end)
-end
-autoSwingLoop() -- Запуск цикла взмахов
-
 -- ============================================
 -- SERVICES & VARIABLES
 -- ============================================
@@ -3006,9 +2956,22 @@ function printPriorityDebug()
         print("NO ACTION SELECTED")
     end
 end
+-- ============================================
+-- [Вставь сюда ПОЛНОСТЬЮ весь блок функций из твоего самого первого сообщения]
+-- Начиная от "local Players = game:GetService('Players')" 
+-- и заканчивая "function printPriorityDebug()"
+
+-- ПРИМЕР (обязательно оставь эти циклы запущенными):
+task.spawn(function()
+    while task.wait(0.1) do
+        if getgenv().SaberConfig.AutoSell then
+            game:GetService("ReplicatedStorage").Events.SellStrength:FireServer()
+        end
+    end
+end)
 
 -- ============================================
--- 4. ИНТЕРФЕЙС (GUI)
+-- 3. ИНТЕРФЕЙС (RAYFIELD GUI)
 -- ============================================
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
@@ -3019,12 +2982,17 @@ local Window = Rayfield:CreateWindow({
 })
 
 local TabMain = Window:CreateTab("🏠 Главное")
-local TabFarm = Window:CreateTab("⚔️ Фарм")
+local TabQuest = Window:CreateTab("📜 Квесты")
+
+TabMain:CreateSection("Автоматизация")
 
 TabMain:CreateToggle({
    Name = "Авто-Взмахи",
    CurrentValue = false,
-   Callback = function(v) getgenv().SaberConfig.AutoSwing = v end,
+   Callback = function(v) 
+      getgenv().SaberConfig.AutoSwing = v 
+      if v and autoSwing then task.spawn(autoSwing) end
+   end,
 })
 
 TabMain:CreateToggle({
@@ -3033,13 +3001,14 @@ TabMain:CreateToggle({
    Callback = function(v) getgenv().SaberConfig.AutoSell = v end,
 })
 
-TabFarm:CreateToggle({
+TabQuest:CreateSection("Квесты")
+TabQuest:CreateToggle({
    Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ",
    CurrentValue = false,
    Callback = function(v) 
       getgenv().SaberConfig.AutoQuest = v
-      if v then pcall(startAutoQuestLoop) end 
+      if v and startAutoQuestLoop then task.spawn(startAutoQuestLoop) end 
    end,
 })
 
-Rayfield:Notify({ Title = "Загружено!", Content = "Скрипт готов к работе", Duration = 5 })
+Rayfield:Notify({ Title = "Готово!", Content = "Скрипт загружен из useraymi-afk", Duration = 5 })
