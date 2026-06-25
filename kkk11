@@ -1,26 +1,61 @@
--- [[ SABER SIMULATOR ULTRA HUB | FULL FIXED VERSION ]] --
+-- [[ SABER SIMULATOR ULTRA HUB | FULL SOURCE | PART 1 ]] --
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- ============================================
--- 1. ГЛОБАЛЬНЫЙ КОНФИГ
+-- 1. ГЛОБАЛЬНЫЙ КОНФИГ (УПРАВЛЯЕТСЯ ГУИ)
 -- ============================================
 getgenv().SaberConfig = {
+    -- Состояния (Toggles)
     AutoSwing = false,
     AutoSell = false,
     AutoQuest = false,
     DungeonActive = false,
     AutoCrowns = false,
+    AutoDaily = false,
+    AutoOpenEgg = false,
+    AutoCompletePetdex = false,
+    AutoRedeemPetdexRewards = false,
+    AutoCraftAllPets = false,
+    AutoEquipBestPets = false,
+    AutoDeletePets = false,
+    AutoTeleportToBoss = false,
+    AutoWalkBossPremium = false,
+    AutoBringBoss = false,
+    AutoBuySaber = false,
+    AutoBuyDNA = false,
+    AutoBuyClass = false,
+    AutoBuyBossDamage = false,
+    AutoBuyAura = false,
+    AutoBuyPetAura = false,
+    AutoCollectEventCurrency = false,
+    AutoWalkEventBoss = false,
+    ChangeWalkSpeed = false,
+    InfiniteJump = false,
+    AutoInvisible = false,
+    HideVisualEffects = false,
+    HideNameRankUI = false,
+    MovementAntiAFK = false,
+    
+    -- Настройки (Values)
     WalkSpeedValue = 45,
     SelectedEgg = "Wooden Egg",
     SelectedDungeon = "Space",
     SelectedDifficulty = 1,
     DunFarmingDistance = 9,
-    -- Флаги для квестов
+    AntiAFKInterval = 60,
+    
+    -- Квесты (Skips)
     skipDungeonQuest = false,
     skipEggQuest = false,
-    skipBossQuest = false
+    skipBossQuest = false,
+    skipElementQuest = false,
+    skipKOTHQuest = false,
+    skipFlagQuest = false
 }
+
+-- Локальная ссылка для скорости и избежания ошибок Metatable
+local cfg = getgenv().SaberConfig
 
 -- ============================================
 -- 2. СЕРВИСЫ
@@ -34,30 +69,25 @@ local CollectionService = game:GetService("CollectionService")
 local VirtualUser = game:GetService("VirtualUser")
 
 local lp = Players.LocalPlayer
-local Character = lp.Character or lp.CharacterAdded:Wait()
+local char = lp.Character or lp.CharacterAdded:Wait()
 
 -- ============================================
--- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+-- 3. GLOBAL HIT DETECTION HOOK (HIT SPOOF)
 -- ============================================
-function getBossData()
-    local gameplay = workspace:FindFirstChild("Gameplay")
-    local bossFolder = gameplay and gameplay:FindFirstChild("Boss")
-    local holder = bossFolder and bossFolder:FindFirstChild("BossHolder")
-    local model = holder and holder:FindFirstChildOfClass("Model")
-    if not model then return nil end
-    return model:FindFirstChild("HumanoidRootPart")
-end
+getgenv().globalHitSpoof = false
 
--- Хук на урон (Hit Spoof)
 pcall(function()
     local HitDetection = require(lp.PlayerScripts.MainClient.ClientTool.HitDetection)
-    if not getgenv().oldGetHits then getgenv().oldGetHits = HitDetection.GetBossesAndMobsHit end
+    if not getgenv().oldGetHits then
+        getgenv().oldGetHits = HitDetection.GetBossesAndMobsHit
+    end
     HitDetection.GetBossesAndMobsHit = function(self, player)
-        if getgenv().SaberConfig.AutoQuest or getgenv().SaberConfig.DungeonActive then
+        if cfg.AutoQuest or cfg.DungeonActive or getgenv().globalHitSpoof then
             local hitAll = {}
             local seen = {}
             for _, tag in ipairs({"Boss", "EventBoss", "Mob", "DungeonEnemy"}) do
-                for _, mob in ipairs(CollectionService:GetTagged(tag)) do
+                local tagged = CollectionService:GetTagged(tag)
+                for _, mob in ipairs(tagged) do
                     if mob and mob.Parent and not seen[mob] then
                         local hrp = mob:FindFirstChild("HumanoidRootPart")
                         if hrp and (mob:GetAttribute("Health") or 1) > 0 then
@@ -68,184 +98,749 @@ pcall(function()
                 end
             end
             return hitAll
+        else
+            return getgenv().oldGetHits(self, player)
         end
-        return getgenv().oldGetHits(self, player)
     end
 end)
 
 -- ============================================
--- 4. ФОНОВЫЕ ЦИКЛЫ (ВКЛЮЧАЮТСЯ КНОПКАМИ)
+-- 4. СПИСОК ЯИЦ (ПОЛНЫЙ FETCH)
 -- ============================================
+function fetchEggShopList()
+    local eggList = {}
+    local eggMap = {}
+    local eggImages = {}
 
--- Взмахи
-task.spawn(function()
-    local clientTool = require(lp.PlayerScripts.MainClient.ClientTool)
-    while true do
-        if getgenv().SaberConfig.AutoSwing and lp.Character then
-            local tool = lp.Character:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("RemoteClick") then
-                clientTool:Swing()
+    local shopData = {
+        {Name = "Basic Egg", Image = "rbxassetid://88804981672877"},
+        {Name = "Wooden Egg", Image = "rbxassetid://84218619466162"},
+        {Name = "Halloween", Image = "rbxassetid://70698311435941"},
+        {Name = "Reinforced Egg", Image = "rbxassetid://92894295691700"},
+        {Name = "Ancient", Image = "rbxassetid://138354218459266"},
+        {Name = "Cursed Egg", Image = "rbxassetid://71918275369648"},
+        {Name = "Egg of life", Image = "rbxassetid://119093633883595"},
+        {Name = "Glory Egg", Image = "rbxassetid://103515024821961"},
+        {Name = "Dominus Egg", Image = "rbxassetid://84423702277372"},
+        {Name = "Silver Egg", Image = "rbxassetid://87938752476733"},
+        {Name = "Golden Egg", Image = "rbxassetid://125099771017092"},
+        {Name = "Premium Egg", Image = "rbxassetid://135680820194944"},
+        {Name = "Heart Egg", Image = "rbxassetid://81383225737530"},
+        {Name = "Class Egg", Image = "rbxassetid://119785366054261"},
+        {Name = "Diamond Egg", Image = "rbxassetid://101857621951969"},
+        {Name = "Ruby Egg", Image = "rbxassetid://78951170574839"},
+        {Name = "Alpha Egg", Image = "rbxassetid://139287591252150"},
+        {Name = "Snow Egg", Image = "rbxassetid://83859952333416"},
+        {Name = "Christmas Egg", Image = "rbxassetid://81807249085248"},
+        {Name = "Ice Egg", Image = "rbxassetid://137721352897486"},
+        {Name = "Reaper Egg", Image = "rbxassetid://94837237730421"},
+        {Name = "Nature Egg", Image = "rbxassetid://109396565604421"},
+        {Name = "Winter Egg", Image = "rbxassetid://104318739321213"},
+        {Name = "Valk Egg", Image = "rbxassetid://100211133376747"},
+        {Name = "Fire Egg", Image = "rbxassetid://122634429460826"},
+        {Name = "Food Egg", Image = "rbxassetid://73564131414251"},
+        {Name = "Dragon Egg", Image = "rbxassetid://112821859726900"},
+        {Name = "Star Egg", Image = "rbxassetid://95242748655278"},
+        {Name = "Cow Egg", Image = "rbxassetid://78129747023117"},
+        {Name = "Flame Egg", Image = "rbxassetid://126454174915046"},
+        {Name = "Water Egg", Image = "rbxassetid://136395870550745"},
+        {Name = "Ooga Egg", Image = "rbxassetid://131048018768726"},
+        {Name = "Valentine Egg", Image = "rbxassetid://112782360392477"},
+        {Name = "Matrix Egg", Image = "rbxassetid://101171046976865"},
+        {Name = "Round Egg", Image = "rbxassetid://86518992970899"},
+        {Name = "Thanksgiving Egg", Image = "rbxassetid://137158361471030"},
+        {Name = "Shadow Egg", Image = "rbxassetid://76523314830135"},
+        {Name = "Pink Egg", Image = "rbxassetid://118332068664851"},
+        {Name = "Candy Egg", Image = "rbxassetid://102803796324230"},
+        {Name = "Rushed Egg", Image = "rbxassetid://108178654878889"},
+        {Name = "Onetap Egg", Image = "rbxassetid://136266007393669"},
+        {Name = "Swag Egg", Image = "rbxassetid://119454736888734"},
+        {Name = "Triangle Egg", Image = "rbxassetid://116121215110138"},
+        {Name = "Square Egg", Image = "rbxassetid://88771415398844"},
+        {Name = "Cringe Egg", Image = "rbxassetid://131251255197735"},
+        {Name = "Boris Egg", Image = "rbxassetid://120309667981743"},
+        {Name = "Phantom Egg", Image = "rbxassetid://128709384050464"},
+        {Name = "Business Egg", Image = "rbxassetid://130158993094706"},
+        {Name = "Egg Egg", Image = "rbxassetid://125068222737446"},
+        {Name = "Birthday Egg", Image = "rbxassetid://136155095004962"},
+        {Name = "Easter Egg", Image = "rbxassetid://112541003968164"},
+        {Name = "Switch Egg", Image = "rbxassetid://81579943552003"},
+        {Name = "America Egg", Image = "rbxassetid://96710963109295"},
+        {Name = "British Egg", Image = "rbxassetid://116022148397672"},
+        {Name = "Erick Egg", Image = "rbxassetid://104996396558772"},
+        {Name = "Henry Egg", Image = "rbxassetid://97178700275962"},
+        {Name = "Lazy Dev Egg", Image = "rbxassetid://81170246167534"},
+        {Name = "Puppet Egg", Image = "rbxassetid://109455238544843"},
+        {Name = "Piggy Egg", Image = "rbxassetid://95975429685300"},
+        {Name = "Easy Egg", Image = "rbxassetid://110611321676337"},
+        {Name = "Guts Egg", Image = "rbxassetid://134136193786608"},
+        {Name = "Bruh Egg", Image = "rbxassetid://139644890578287"},
+        {Name = "Griffith Egg", Image = "rbxassetid://84755002334796"},
+        {Name = "Casca Egg", Image = "rbxassetid://128934092578288"},
+        {Name = "Femto Egg", Image = "rbxassetid://91597926843817"},
+        {Name = "Pippin Egg", Image = "rbxassetid://82382708142277"},
+        {Name = "Dog Egg", Image = "rbxassetid://125984526244509"},
+        {Name = "Bingo Egg", Image = "rbxassetid://137301337802485"},
+        {Name = "M Egg", Image = "rbxassetid://106244714140639"},
+        {Name = "A Egg", Image = "rbxassetid://91263429271880"},
+        {Name = "B Egg", Image = "rbxassetid://122251420200227"},
+        {Name = "C Egg", Image = "rbxassetid://71646857736158"},
+        {Name = "D Egg", Image = "rbxassetid://117440104639027"},
+        {Name = "F Egg", Image = "rbxassetid://138434606064868"},
+        {Name = "E Egg", Image = "rbxassetid://84124866720403"},
+        {Name = "H Egg", Image = "rbxassetid://106610839480739"},
+        {Name = "G Egg", Image = "rbxassetid://87667002721511"},
+        {Name = "I Egg", Image = "rbxassetid://112806848879710"},
+        {Name = "J Egg", Image = "rbxassetid://127724093964635"},
+        {Name = "K Egg", Image = "rbxassetid://122885026251475"},
+        {Name = "L Egg", Image = "rbxassetid://112460172217893"},
+        {Name = "N Egg", Image = "rbxassetid://85893512536616"},
+        {Name = "O Egg", Image = "rbxassetid://73824064351366"},
+        {Name = "P Egg", Image = "rbxassetid://84691533469717"},
+        {Name = "Q Egg", Image = "rbxassetid://109443815204496"},
+        {Name = "R Egg", Image = "rbxassetid://132567547425983"},
+        {Name = "S Egg", Image = "rbxassetid://95670047691222"},
+        {Name = "T Egg", Image = "rbxassetid://85540815268879"},
+        {Name = "U Egg", Image = "rbxassetid://82868169963026"},
+        {Name = "V Egg", Image = "rbxassetid://137653989621490"},
+        {Name = "W Egg", Image = "rbxassetid://131696395913457"},
+        {Name = "X Egg", Image = "rbxassetid://109929029126390"},
+        {Name = "Y Egg", Image = "rbxassetid://74991055365276"},
+        {Name = "Z Egg", Image = "rbxassetid://116226758689311"},
+        {Name = "AH Egg", Image = "rbxassetid://126946577785511"},
+        {Name = "AA Egg", Image = "rbxassetid://134449036547933"},
+        {Name = "AB Egg", Image = "rbxassetid://98388440499689"},
+        {Name = "AC Egg", Image = "rbxassetid://80995049667067"},
+        {Name = "AD Egg", Image = "rbxassetid://85071290465168"},
+        {Name = "AE Egg", Image = "rbxassetid://131972677859954"},
+        {Name = "AF Egg", Image = "rbxassetid://110365742306084"},
+        {Name = "AG Egg", Image = "rbxassetid://123586535085159"},
+        {Name = "AM Egg", Image = "rbxassetid://71361653413839"},
+        {Name = "AI Egg", Image = "rbxassetid://94763831194328"},
+        {Name = "AJ Egg", Image = "rbxassetid://93248691123281"},
+        {Name = "AK Egg", Image = "rbxassetid://89332562454784"},
+        {Name = "AL Egg", Image = "rbxassetid://95986215282502"},
+        {Name = "AZ Egg", Image = "rbxassetid://107732894072758"},
+        {Name = "AN Egg", Image = "rbxassetid://107088020545549"},
+        {Name = "AO Egg", Image = "rbxassetid://128954488591725"},
+        {Name = "AP Egg", Image = "rbxassetid://132737591376996"},
+        {Name = "AQ Egg", Image = "rbxassetid://105445677860717"},
+        {Name = "AR Egg", Image = "rbxassetid://94884688842909"},
+        {Name = "AS Egg", Image = "rbxassetid://96452004520950"},
+        {Name = "AT Egg", Image = "rbxassetid://132580059613869"},
+        {Name = "AU Egg", Image = "rbxassetid://118086762655214"},
+        {Name = "AV Egg", Image = "rbxassetid://83840585961744"},
+        {Name = "AW Egg", Image = "rbxassetid://106593331664820"},
+        {Name = "AX Egg", Image = "rbxassetid://77561234865060"},
+        {Name = "BA Egg", Image = "rbxassetid://137495747437769"},
+        {Name = "BB Egg", Image = "rbxassetid://117460977921829"},
+        {Name = "BF Egg", Image = "rbxassetid://106372908081095"},
+        {Name = "BC Egg", Image = "rbxassetid://118545706463436"},
+        {Name = "BD Egg", Image = "rbxassetid://100949530780659"},
+        {Name = "BE Egg", Image = "rbxassetid://71290806982055"},
+        {Name = "BK Egg", Image = "rbxassetid://82111506983701"},
+        {Name = "BG Egg", Image = "rbxassetid://82299186997904"},
+        {Name = "BH Egg", Image = "rbxassetid://111529418020393"},
+        {Name = "BI Egg", Image = "rbxassetid://105971951329178"},
+        {Name = "DG Egg", Image = "rbxassetid://111063774123760"},
+        {Name = "BL Egg", Image = "rbxassetid://112460172217893"},
+        {Name = "BM Egg", Image = "rbxassetid://88804981672877"},
+        {Name = "BZ Egg", Image = "rbxassetid://103367419901810"},
+        {Name = "BN Egg", Image = "rbxassetid://74406178308640"},
+        {Name = "BO Egg", Image = "rbxassetid://126939961367271"},
+        {Name = "BP Egg", Image = "rbxassetid://116786495527604"},
+        {Name = "BQ Egg", Image = "rbxassetid://118621517818584"},
+        {Name = "BR Egg", Image = "rbxassetid://75503004705347"},
+        {Name = "BS Egg", Image = "rbxassetid://136092321401574"},
+        {Name = "BT Egg", Image = "rbxassetid://75011568457585"},
+        {Name = "BU Egg", Image = "rbxassetid://132786943571976"},
+        {Name = "BV Egg", Image = "rbxassetid://97418697118371"},
+        {Name = "BW Egg", Image = "rbxassetid://97614838653824"},
+        {Name = "BX Egg", Image = "rbxassetid://108637100669232"},
+        {Name = "CD Egg", Image = "rbxassetid://126297837839441"},
+        {Name = "CA Egg", Image = "rbxassetid://97894967097908"},
+        {Name = "CQ Egg", Image = "rbxassetid://87530072253186"},
+        {Name = "CC Egg", Image = "rbxassetid://95716821002349"},
+        {Name = "CB Egg", Image = "rbxassetid://136702267065482"},
+        {Name = "CE Egg", Image = "rbxassetid://107734282123468"},
+        {Name = "CF Egg", Image = "rbxassetid://110365742306084"},
+        {Name = "CG Egg", Image = "rbxassetid://139693709405212"},
+        {Name = "CH Egg", Image = "rbxassetid://117257568639419"},
+        {Name = "CI Egg", Image = "rbxassetid://104223176889051"},
+        {Name = "CJ Egg", Image = "rbxassetid://121030632564958"},
+        {Name = "CK Egg", Image = "rbxassetid://101483394357097"},
+        {Name = "CL Egg", Image = "rbxassetid://121234531313960"},
+        {Name = "CM Egg", Image = "rbxassetid://110381279241325"},
+        {Name = "CN Egg", Image = "rbxassetid://82805256938360"},
+        {Name = "CO Egg", Image = "rbxassetid://105702471496281"},
+        {Name = "CP Egg", Image = "rbxassetid://130076563016703"},
+        {Name = "CR Egg", Image = "rbxassetid://128334582856817"},
+        {Name = "CS Egg", Image = "rbxassetid://128315026662151"},
+        {Name = "CT Egg", Image = "rbxassetid://116917749482588"},
+        {Name = "CU Egg", Image = "rbxassetid://129444031613022"},
+        {Name = "CV Egg", Image = "rbxassetid://78301163024534"},
+        {Name = "CW Egg", Image = "rbxassetid://128877144668623"},
+        {Name = "CX Egg", Image = "rbxassetid://97756210364718"},
+        {Name = "CY Egg", Image = "rbxassetid://78577489846363"},
+        {Name = "CZ Egg", Image = "rbxassetid://94564402455288"},
+        {Name = "DA Egg", Image = "rbxassetid://133351873666810"},
+        {Name = "DB Egg", Image = "rbxassetid://123493385855284"},
+        {Name = "DC Egg", Image = "rbxassetid://91442577985331"},
+        {Name = "DD Egg", Image = "rbxassetid://133937876932434"},
+        {Name = "DE Egg", Image = "rbxassetid://88165925716959"},
+        {Name = "DF Egg", Image = "rbxassetid://85319856164152"},
+        {Name = "DH Egg", Image = "rbxassetid://88697287745827"},
+        {Name = "DI Egg", Image = "rbxassetid://95820066969626"},
+        {Name = "DJ Egg", Image = "rbxassetid://107607628644174"},
+        {Name = "DK Egg", Image = "rbxassetid://137766513081397"},
+        {Name = "DL Egg", Image = "rbxassetid://107371960859821"},
+        {Name = "DM Egg", Image = "rbxassetid://139375489124904"},
+        {Name = "DN Egg", Image = "rbxassetid://136162056360512"},
+        {Name = "DO Egg", Image = "rbxassetid://131987924225115"},
+        {Name = "DP Egg", Image = "rbxassetid://110626813517843"},
+        {Name = "DQ Egg", Image = "rbxassetid://81614370674049"},
+        {Name = "DR Egg", Image = "rbxassetid://127687103965345"},
+        {Name = "DS Egg", Image = "rbxassetid://83541815674403"},
+        {Name = "DT Egg", Image = "rbxassetid://111023304171299"},
+        {Name = "DU Egg", Image = "rbxassetid://94763628810138"},
+        {Name = "DV Egg", Image = "rbxassetid://121758388831682"},
+        {Name = "DW Egg", Image = "rbxassetid://103228449749501"},
+        {Name = "DX Egg", Image = "rbxassetid://126653339120818"},
+        {Name = "DY Egg", Image = "rbxassetid://94783894481233"},
+        {Name = "DZ Egg", Image = "rbxassetid://107434147171671"},
+        {Name = "EA Egg", Image = "rbxassetid://132058459133563"},
+        {Name = "EB Egg", Image = "rbxassetid://122560923046410"},
+        {Name = "EC Egg", Image = "rbxassetid://101918020143795"},
+        {Name = "ED Egg", Image = "rbxassetid://84259135627693"},
+        {Name = "EE Egg", Image = "rbxassetid://134163816528460"},
+        {Name = "EF Egg", Image = "rbxassetid://88757720996267"},
+        {Name = "EG Egg", Image = "rbxassetid://124175266830863"},
+        {Name = "EH Egg", Image = "rbxassetid://109921746541200"},
+        {Name = "EI Egg", Image = "rbxassetid://120626676146020"},
+        {Name = "EJ Egg", Image = "rbxassetid://130756189085851"},
+        {Name = "EK Egg", Image = "rbxassetid://81025838999547"},
+        {Name = "EL Egg", Image = "rbxassetid://98965206793906"},
+        {Name = "EM Egg", Image = "rbxassetid://132984926366222"},
+        {Name = "EN Egg", Image = "rbxassetid://82265209351243"},
+        {Name = "EO Egg", Image = "rbxassetid://87213881174742"},
+        {Name = "EP Egg", Image = "rbxassetid://125120631385002"},
+        {Name = "EQ Egg", Image = "rbxassetid://129471097485715"},
+        {Name = "ER Egg", Image = "rbxassetid://100601398789064"},
+        {Name = "ES Egg", Image = "rbxassetid://99398537443914"},
+        {Name = "ET Egg", Image = "rbxassetid://111248154175294"},
+        {Name = "EU Egg", Image = "rbxassetid://73315558811176"},
+        {Name = "EV Egg", Image = "rbxassetid://133290512845541"},
+        {Name = "EW Egg", Image = "rbxassetid://109124998331149"},
+        {Name = "EX Egg", Image = "rbxassetid://70662084922380"},
+        {Name = "EY Egg", Image = "rbxassetid://134234462250903"},
+        {Name = "EZ Egg", Image = "rbxassetid://132250900664289"},
+        {Name = "FA Egg", Image = "rbxassetid://133869132564333"},
+        {Name = "FB Egg", Image = "rbxassetid://128826365174406"},
+        {Name = "FC Egg", Image = "rbxassetid://129673092049690"},
+        {Name = "FD Egg", Image = "rbxassetid://134793172134549"},
+        {Name = "FE Egg", Image = "rbxassetid://96306007292389"},
+        {Name = "FF Egg", Image = "rbxassetid://94390100437216"},
+        {Name = "FG Egg", Image = "rbxassetid://96205304676356"},
+        {Name = "FH Egg", Image = "rbxassetid://91117496270004"},
+        {Name = "FI Egg", Image = "rbxassetid://109283454203121"},
+        {Name = "FJ Egg", Image = "rbxassetid://104814035893516"},
+        {Name = "FK Egg", Image = "rbxassetid://89681365046938"},
+        {Name = "FL Egg", Image = "rbxassetid://139730208001040"},
+        {Name = "FM Egg", Image = "rbxassetid://101294815434993"},
+        {Name = "FN Egg", Image = "rbxassetid://71408324989218"},
+        {Name = "FO Egg", Image = "rbxassetid://79605856538551"},
+        {Name = "FP Egg", Image = "rbxassetid://99939209261696"},
+        {Name = "FQ Egg", Image = "rbxassetid://127251783114742"},
+        {Name = "FR Egg", Image = "rbxassetid://136992026499991"},
+        {Name = "FS Egg", Image = "rbxassetid://74885935690411"},
+        {Name = "FT Egg", Image = "rbxassetid://98420653376242"},
+        {Name = "FU Egg", Image = "rbxassetid://126526188690958"},
+        {Name = "FV Egg", Image = "rbxassetid://114253806444473"},
+        {Name = "FW Egg", Image = "rbxassetid://71526232904708"},
+        {Name = "FX Egg", Image = "rbxassetid://132359122422676"},
+        {Name = "FY Egg", Image = "rbxassetid://133211101289148"},
+        {Name = "FZ Egg", Image = "rbxassetid://127063050001528"},
+        {Name = "GA Egg", Image = "rbxassetid://84259135627693"},
+        {Name = "GB Egg", Image = "rbxassetid://79605856538551"},
+        {Name = "GC Egg", Image = "rbxassetid://99939209261696"},
+        {Name = "GD Egg", Image = "rbxassetid://127251783114742"},
+        {Name = "GE Egg", Image = "rbxassetid://136992026499991"},
+        {Name = "GF Egg", Image = "rbxassetid://74885935690411"},
+        {Name = "GG Egg", Image = "rbxassetid://98420653376242"},
+        {Name = "GH Egg", Image = "rbxassetid://126526188690958"},
+        {Name = "GI Egg", Image = "rbxassetid://114253806444473"}
+    }
+
+    for i, data in ipairs(shopData) do
+        local pageNum = math.ceil(i / 12)
+        local eggNum = ((i - 1) % 12) + 1
+        local displayText = string.format("Page: %d, Egg: %d, Name: %s", pageNum, eggNum, data.Name)
+
+        table.insert(eggList, displayText)
+        eggMap[displayText] = data.Name
+        table.insert(eggImages, data.Image)
+    end
+
+    -- Fallback: Check for brand NEW eggs that weren't in the dump
+    local succ, petsInfo = pcall(function()
+        return require(ReplicatedStorage.Modules.PetsInfo)
+    end)
+
+    if succ and petsInfo then
+        local knownEggs = {}
+        for _, e in ipairs(shopData) do knownEggs[e.Name] = true end
+
+        local extraEggs = {}
+        if petsInfo.Eggs then
+            for eggName, eggData in pairs(petsInfo.Eggs) do
+                if not knownEggs[eggName] then
+                    table.insert(extraEggs, {Name = eggName, Image = eggData.Image or ""})
+                end
             end
         end
-        task.wait(0.05)
-    end
-end)
 
--- Продажа
-task.spawn(function()
-    while true do
-        if getgenv().SaberConfig.AutoSell then
-            ReplicatedStorage.Events.SellStrength:FireServer()
+        table.sort(extraEggs, function(a, b) return a.Name < b.Name end)
+
+        for _, data in ipairs(extraEggs) do
+            local i = #eggList + 1
+            local pageNum = math.ceil(i / 12)
+            local eggNum = ((i - 1) % 12) + 1
+            local displayText = string.format("Page: %d, Egg: %d, Name: %s", pageNum, eggNum, data.Name)
+
+            table.insert(eggList, displayText)
+            eggMap[displayText] = data.Name
+            table.insert(eggImages, data.Image)
         end
-        task.wait(0.5)
     end
-end)
 
--- Сбор корон
-task.spawn(function()
-    while true do
-        if getgenv().SaberConfig.AutoCrowns and lp.Character then
-            local root = lp.Character:FindFirstChild("HumanoidRootPart")
-            if root then
+    return eggList, eggMap, eggImages
+end
+-- [[ PART 2: DUNGEON & HATCHERY LOGIC ]] --
+
+function GetEggPriority(imageId)
+    for tierName, tierData in pairs(EggPriorities) do
+        for _, id in pairs(tierData.ids) do
+            if imageId == id then
+                return tierData.priority, tierName
+            end
+        end
+    end
+    return 0, "UNKNOWN"
+end
+
+function autoClaimIncubatedPet()
+    task.spawn(function()
+        while true do
+            if cfg.autoClaimIncubated then
                 pcall(function()
-                    for _, pickup in pairs(workspace.Gameplay.CurrencyPickup.CurrencyHolder:GetChildren()) do
-                        if pickup.Transparency == 0 and pickup.Name == "Crown" then
-                            pickup.CFrame = root.CFrame
-                            pickup.Anchored = true
+                    local ps = lp:FindFirstChild("PlayerScripts")
+                    if not ps then return end
+                    local dataManager = require(ps.MainClient.ClientDataManager)
+                    local dateTimeManager = require(ps.MainClient.DateTimeManager)
+                    local hatchery = dataManager.Data and dataManager.Data.DungeonHatchery
+                    if not hatchery then return end
+                    for slot, data in pairs(hatchery) do
+                        if data and data.HatchDT and dateTimeManager:Now() >= data.HatchDT then
+                            ReplicatedStorage.Events.UIAction:FireServer("HatchDungeonEgg", slot)
                         end
                     end
                 end)
             end
-        end
-        task.wait(0.3)
-    end
-end)
-
--- Анти-АФК
-lp.Idled:Connect(function()
-    VirtualUser:CaptureController()
-    VirtualUser:ClickButton2(Vector2.new(0,0))
-end)
-
--- ============================================
--- 5. ТВОЯ ОЧИЩЕННАЯ ЛОГИКА (КВЕСТЫ И ДАНЖИ)
--- ============================================
-
--- Функция авто-входа в данж
-function autoJoinDungeon()
-    pcall(function()
-        local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
-        local isInDungeon = false
-        if dungeonStorage then
-            for _, folder in pairs(dungeonStorage:GetChildren()) do
-                if #folder:GetChildren() > 0 then isInDungeon = true; break end
-            end
-        end
-        if not isInDungeon then
-            local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
-            local dateTimeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
-            if dateTimeManager:Now() >= (dataManager.Data.DungeonCooldownEndDT or 0) then
-                ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", getgenv().SaberConfig.SelectedDungeon, getgenv().SaberConfig.SelectedDifficulty)
-                task.wait(1.5)
-                ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
-            end
+            task.wait(1)
         end
     end)
 end
 
--- Функция цикла квестов (Очищена)
-function startAutoQuestLoop()
-    while getgenv().SaberConfig.AutoQuest do
-        pcall(function()
-            local ClientDataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
-            local QuestInfo = require(ReplicatedStorage.Modules.QuestInfo)
-            local quests = ClientDataManager.Data and ClientDataManager.Data.ClanQuests
-            if not quests then return end
+function autoJoinDungeon()
+    task.spawn(function()
+        while true do
+            if cfg.autoJoinDungeon or cfg.DungeonActive then
+                pcall(function()
+                    local isInDungeon = false
+                    local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                    if dungeonStorage then
+                        for _, folder in pairs(dungeonStorage:GetChildren()) do
+                            if #folder:GetChildren() > 0 then
+                                isInDungeon = true
+                                break
+                            end
+                        end
+                    end
+                    if not isInDungeon then
+                        local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+                        local dateTimeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
+                        local cooldownEnd = dataManager.Data and dataManager.Data.DungeonCooldownEndDT or 0
+                        if dateTimeManager:Now() >= cooldownEnd then
+                            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", cfg.SelectedDungeon, cfg.SelectedDifficulty)
+                            task.wait(1.5)
+                            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
+                        end
+                    end
+                end)
+            end
+            task.wait(3)
+        end
+    end)
+end
 
-            for questIndex, q in pairs(quests) do
-                local cfg = QuestInfo.ClanQuests[q.Id]
-                if cfg and q.Amount >= cfg.GoalAmount then
-                    ReplicatedStorage.Events.UIAction:FireServer("ClaimClanQuest", questIndex)
-                    task.wait(1)
+function autoFarmDungeon()
+    task.spawn(function()
+        local savedCFrame = nil
+        while true do
+            if cfg.autoFarmDungeon or cfg.DungeonActive then
+                pcall(function()
+                    local char = lp.Character
+                    if not char then return end
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    local charRoot = char:FindFirstChild("HumanoidRootPart")
+                    if not hum or not charRoot then return end
+                    
+                    local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                    if not dungeonStorage then return end
+                    local closest = nil
+                    local dist = math.huge
+                    for _, mapFolder in pairs(dungeonStorage:GetChildren()) do
+                        local importantFolder = mapFolder:FindFirstChild("Important")
+                        if importantFolder then
+                            for _, spawner in pairs(importantFolder:GetChildren()) do
+                                if spawner:IsA("BasePart") and spawner.Name:lower():find("spawner") then
+                                    for _, mob in pairs(spawner:GetChildren()) do
+                                        if mob:IsA("Model") then
+                                            local hrp = mob:FindFirstChild("HumanoidRootPart")
+                                            if hrp then
+                                                local d = (charRoot.Position - hrp.Position).Magnitude
+                                                if d < dist then
+                                                    dist = d
+                                                    closest = hrp
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if closest then
+                        local targetPos = closest.Position + Vector3.new(0, cfg.DunFarmingDistance or 9, 0)
+                        hum.AutoRotate = false
+                        charRoot.CFrame = CFrame.new(targetPos) * CFrame.Angles(math.rad(-90), 0, 0)
+                        charRoot.AssemblyLinearVelocity = Vector3.zero
+                    end
+                end)
+            end
+            task.wait()
+        end
+    end)
+end
+
+function autoCollectDungeonRewards()
+    task.spawn(function()
+        while true do
+            if cfg.autoDungeonRewards or cfg.DungeonActive then
+                pcall(function()
+                    local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+                    if dungeonStorage then
+                        for _, mapFolder in pairs(dungeonStorage:GetChildren()) do
+                            for _, desc in pairs(mapFolder:GetDescendants()) do
+                                if desc:IsA("ProximityPrompt") and desc.ActionText == "Claim Rewards" and desc.Enabled then
+                                    if lp.Character and desc.Parent and desc.Parent:IsA("BasePart") then
+                                        local charRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+                                        if charRoot then
+                                            charRoot.CFrame = desc.Parent.CFrame + Vector3.new(0, 5, 0)
+                                            task.wait(0.3)
+                                        end
+                                    end
+                                    fireproximityprompt(desc)
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+function autoIncubateDungeonEgg()
+    task.spawn(function()
+        while true do
+            if cfg.autoIncubateDungeonEgg or cfg.DungeonActive then
+                pcall(function()
+                    local playerGui = lp:FindFirstChild("PlayerGui")
+                    local mainGui = playerGui and playerGui:FindFirstChild("MainGui")
+                    local otherFrames = mainGui and mainGui:FindFirstChild("OtherFrames")
+                    if not otherFrames then return end
+                    
+                    local dungeonRewards = otherFrames:FindFirstChild("DungeonRewards")
+                    if dungeonRewards and dungeonRewards.Visible then
+                        local yesBtn = dungeonRewards:FindFirstChild("Frame")
+                            and dungeonRewards.Frame:FindFirstChild("Buttons")
+                            and dungeonRewards.Frame.Buttons:FindFirstChild("Yes")
+                            and dungeonRewards.Frame.Buttons.Yes:FindFirstChild("Button")
+                        if yesBtn then
+                            firesignal(yesBtn.MouseButton1Click)
+                            firesignal(yesBtn.Activated)
+                            task.wait(0.5)
+                        end
+                    end
+                    
+                    local ps = lp:FindFirstChild("PlayerScripts")
+                    if ps then
+                        local dataManager = require(ps.MainClient.ClientDataManager)
+                        local hatchery = dataManager.Data and dataManager.Data.DungeonHatchery
+                        if hatchery then
+                            for slot, data in pairs(hatchery) do
+                                if data and data.CanIncubate then
+                                    ReplicatedStorage.Events.UIAction:FireServer("IncubateDungeonEgg", slot)
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+            task.wait(1)
+        end
+    end)
+end
+-- [[ PART 3: COMBAT & SHOP LOGIC ]] --
+
+function autoSwing()
+    task.spawn(function()
+        local clientTool = require(lp.PlayerScripts.MainClient.ClientTool)
+        while true do
+            if cfg.AutoSwing then
+                if lp.Character then
+                    local humanoid = lp.Character:FindFirstChild("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
+                        local tool = lp.Character:FindFirstChildOfClass("Tool")
+                        if tool and tool:FindFirstChild("RemoteClick") then
+                            clientTool:Swing()
+                        end
+                        local backpackTool = lp.Backpack:FindFirstChildOfClass("Tool")
+                        if tool and backpackTool then
+                            humanoid:EquipTool(backpackTool)
+                        end
+                    end
                 end
             end
-            -- Тут будет логика фарма (BossWalk, EggFarm и т.д.)
-        end)
-        task.wait(1)
+            task.wait(0.05)
+        end
+    end)
+end
+
+function autoCollectCrowns()
+    task.spawn(function()
+        while true do
+            if cfg.AutoCrowns then
+                if lp.Character then
+                    local charRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+                    if charRoot then
+                        pcall(function()
+                            for _, pickup in pairs(workspace.Gameplay.CurrencyPickup.CurrencyHolder:GetChildren()) do
+                                if pickup.Transparency == 0 and pickup.Name == "Crown" then
+                                    pickup.CFrame = charRoot.CFrame
+                                    pickup.Anchored = true
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+            task.wait(0.3)
+        end
+    end)
+end
+
+function autoSellDNA()
+    task.spawn(function()
+        while true do
+            if cfg.AutoSell then
+                ReplicatedStorage.Events.SellStrength:FireServer()
+            end
+            task.wait(0.2)
+        end
+    end)
+end
+
+function autoBuySaber()
+    task.spawn(function()
+        while true do
+            if cfg.AutoBuySaber then
+                ReplicatedStorage.Events.UIAction:FireServer("BuyAllWeapons")
+            end
+            task.wait(1.5)
+        end
+    end)
+end
+
+function autoBuyDNA()
+    task.spawn(function()
+        while true do
+            if cfg.AutoBuyDNA then
+                ReplicatedStorage.Events.UIAction:FireServer("BuyAllDNAs")
+            end
+            task.wait(1.5)
+        end
+    end)
+end
+
+function autoBuyClass()
+    task.spawn(function()
+        while true do
+            if cfg.AutoBuyClass then
+                pcall(function()
+                    local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+                    local itemInfo = require(ReplicatedStorage.Modules.ItemInfo)
+                    local nextClass = itemInfo.Classes_Order[dataManager.Data.Best_Class_Index + 1]
+                    if nextClass then
+                        ReplicatedStorage.Events.UIAction:FireServer("BuyClass", nextClass)
+                    end
+                end)
+            end
+            task.wait(1.5)
+        end
+    end)
+end
+
+-- Запуск этих циклов сразу
+autoSwing()
+autoCollectCrowns()
+autoSellDNA()
+autoBuySaber()
+autoBuyDNA()
+autoBuyClass()
+autoJoinDungeon()
+autoFarmDungeon()
+autoCollectDungeonRewards()
+autoIncubateDungeonEgg()
+autoClaimIncubatedPet()
+-- [[ PART 4: QUESTS & ELEMENTS ]] --
+
+local ELEMENTS = {"Fire", "Water", "Earth", "Plasma"}
+local ElementZones = {
+    Fire = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Fire.Fire end,
+        Advanced = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedFireArea") return a and a.Important:FindFirstChild("Fire") end,
+        Master = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterFireArea") return a and a.Important:FindFirstChild("Fire") end,
+        Grandmaster = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterFireArea") return a and a.Important:FindFirstChild("Fire") end
+    },
+    Water = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Water.Water end,
+        Advanced = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedWaterArea") return a and a.Important:FindFirstChild("Water") end,
+        Master = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterWaterArea") return a and a.Important:FindFirstChild("Water") end,
+        Grandmaster = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterWaterArea") return a and a.Important:FindFirstChild("Water") end
+    },
+    Earth = {
+        Normal = function() return workspace.Gameplay.Map.ElementZones.Earth.Model.Earth end,
+        Advanced = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedEarthArea") return a and a.Important:FindFirstChild("Earth") end,
+        Master = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterEarthArea") return a and a.Important:FindFirstChild("Earth") end,
+        Grandmaster = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterEarthArea") return a and a.Important:FindFirstChild("Earth") end
+    },
+    Plasma = {
+        Normal = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("AdvancedPlasmaArea") return a and a.Important:FindFirstChild("Plasma") end,
+        Advanced = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("MasterPlasmaArea") return a and a.Important:FindFirstChild("Plasma") end,
+        Master = function() local a = workspace.Gameplay.RegionsLoaded:FindFirstChild("GrandmasterPlasmaArea") return a and a.Important:FindFirstChild("Plasma") end
+    }
+}
+
+function getBossData()
+    pcall(function()
+        local bossModel = workspace.Gameplay.Boss.BossHolder:FindFirstChildOfClass("Model")
+        if bossModel then return bossModel:FindFirstChild("HumanoidRootPart") end
+    end)
+    return nil
+end
+
+function QuestFarmBossWalk()
+    local charRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+    local humanoid = lp.Character:FindFirstChildOfClass("Humanoid")
+    local bossRoot = getBossData()
+    if bossRoot and charRoot then
+        local dist = (Vector3.new(charRoot.Position.X, 0, charRoot.Position.Z) - Vector3.new(bossRoot.Position.X, 0, bossRoot.Position.Z)).Magnitude
+        if dist > 50 then charRoot.CFrame = bossRoot.CFrame + Vector3.new(0, 3, 0)
+        elseif dist > 8 then humanoid:MoveTo(bossRoot.Position)
+        else humanoid:MoveTo(charRoot.Position) end
     end
 end
 
--- ============================================
--- 6. ИНТЕРФЕЙС (GUI)
--- ============================================
+function startAutoQuestLoop()
+    task.spawn(function()
+        while cfg.AutoQuest do
+            pcall(function()
+                local ClientDataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+                local QuestInfo = require(ReplicatedStorage.Modules.QuestInfo)
+                local quests = ClientDataManager.Data and ClientDataManager.Data.ClanQuests
+                if not quests then return end
+
+                -- Claiming
+                for questIndex, q in pairs(quests) do
+                    local qcfg = QuestInfo.ClanQuests[q.Id]
+                    if qcfg and q.Amount >= qcfg.GoalAmount then
+                        ReplicatedStorage.Events.UIAction:FireServer("ClaimClanQuest", questIndex)
+                        task.wait(1)
+                    end
+                end
+
+                -- Farming logic (Boss as example)
+                QuestFarmBossWalk()
+            end)
+            task.wait(0.5)
+        end
+    end)
+end
+-- [[ PART 5: THE INTERFACE ]] --
+
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
-   Name = "Saber Simulator | Ultra Hub",
-   LoadingTitle = "Скрипт загружен!",
+   Name = "Saber Simulator | Remote Ultra Hub",
+   LoadingTitle = "Сборка всех функций...",
    ConfigurationSaving = { Enabled = true, FolderName = "SaberConfig" },
    KeySystem = false
 })
 
-local TabMain = Window:CreateTab("🏠 Главное", 4483362458)
-local TabFarm = Window:CreateTab("⚔️ Фарм", 4483362458)
-local TabDungeon = Window:CreateTab("🏰 Данжи", 4483362458)
+local TabMain = Window:CreateTab("🏠 Главное")
+local TabFarm = Window:CreateTab("⚔️ Фарм")
+local TabDungeon = Window:CreateTab("🏰 Данжи")
 
--- ВКЛАДКА: ГЛАВНОЕ
 TabMain:CreateSection("Автоматизация")
 TabMain:CreateToggle({
    Name = "Авто-Взмахи",
-   CurrentValue = false,
-   Callback = function(v) getgenv().SaberConfig.AutoSwing = v end,
+   CurrentValue = cfg.AutoSwing,
+   Callback = function(v) cfg.AutoSwing = v end,
 })
 TabMain:CreateToggle({
-   Name = "Авто-Продажа DNA",
-   CurrentValue = false,
-   Callback = function(v) getgenv().SaberConfig.AutoSell = v end,
+   Name = "Авто-Продажа",
+   CurrentValue = cfg.AutoSell,
+   Callback = function(v) cfg.AutoSell = v end,
 })
 TabMain:CreateToggle({
    Name = "Авто-Сбор Корон",
-   CurrentValue = false,
-   Callback = function(v) getgenv().SaberConfig.AutoCrowns = v end,
+   CurrentValue = cfg.AutoCrowns,
+   Callback = function(v) cfg.AutoCrowns = v end,
 })
 
--- ВКЛАДКА: КВЕСТЫ
 TabFarm:CreateSection("Клановые квесты")
 TabFarm:CreateToggle({
    Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ",
-   CurrentValue = false,
+   CurrentValue = cfg.AutoQuest,
    Callback = function(v) 
-      getgenv().SaberConfig.AutoQuest = v 
-      if v then task.spawn(startAutoQuestLoop) end
+      cfg.AutoQuest = v 
+      if v then startAutoQuestLoop() end
    end,
 })
 
--- ВКЛАДКА: ДАНЖИ
 TabDungeon:CreateSection("Данж Настройки")
 TabDungeon:CreateDropdown({
    Name = "Сложность",
    Options = {"1 (Easy)", "2 (Medium)", "3 (Hard)", "4 (Impossible)"},
    CurrentOption = {"1 (Easy)"},
-   Callback = function(opt) getgenv().SaberConfig.SelectedDifficulty = tonumber(opt[1]:sub(1,1)) end,
+   Callback = function(opt) cfg.SelectedDifficulty = tonumber(opt[1]:sub(1,1)) end,
 })
 TabDungeon:CreateToggle({
-   Name = "Авто-Данж (Вход + Цикл)",
-   CurrentValue = false,
-   Callback = function(v) 
-      getgenv().SaberConfig.DungeonActive = v 
-      if v then 
-         task.spawn(function()
-            while getgenv().SaberConfig.DungeonActive do
-               autoJoinDungeon()
-               task.wait(10)
-            end
-         end)
-      end
-   end,
+   Name = "Авто-Данж",
+   CurrentValue = cfg.DungeonActive,
+   Callback = function(v) cfg.DungeonActive = v end,
 })
 
-Rayfield:Notify({
-   Title = "Успешно!",
-   Content = "Hub готов к использованию",
-   Duration = 5,
-   Image = 4483362458,
-})
+Rayfield:Notify({ Title = "Готово!", Content = "Скрипт полностью загружен.", Duration = 5 })
