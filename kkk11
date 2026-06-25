@@ -1,9 +1,29 @@
--- [[ SABER SIMULATOR ULTRA HUB | FIXED & CLEAN ]] --
+-- [[ SABER SIMULATOR ULTRA HUB | FULL FIXED VERSION ]] --
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 -- ============================================
--- 1. СЕРВИСЫ
+-- 1. ГЛОБАЛЬНЫЙ КОНФИГ
+-- ============================================
+getgenv().SaberConfig = {
+    AutoSwing = false,
+    AutoSell = false,
+    AutoQuest = false,
+    DungeonActive = false,
+    AutoCrowns = false,
+    WalkSpeedValue = 45,
+    SelectedEgg = "Wooden Egg",
+    SelectedDungeon = "Space",
+    SelectedDifficulty = 1,
+    DunFarmingDistance = 9,
+    -- Флаги для квестов
+    skipDungeonQuest = false,
+    skipEggQuest = false,
+    skipBossQuest = false
+}
+
+-- ============================================
+-- 2. СЕРВИСЫ
 -- ============================================
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -17,27 +37,7 @@ local lp = Players.LocalPlayer
 local Character = lp.Character or lp.CharacterAdded:Wait()
 
 -- ============================================
--- 2. ГЛОБАЛЬНЫЙ КОНФИГ (БЕЗ METATABLE)
--- ============================================
-getgenv().SaberConfig = {
-    AutoSwing = false,
-    AutoSell = false,
-    AutoQuest = false,
-    DungeonActive = false,
-    AutoCrowns = false,
-    WalkSpeedValue = 45,
-    SelectedEgg = "Wooden Egg",
-    SelectedDungeon = "Space",
-    SelectedDifficulty = 1,
-    DunFarmingDistance = 9,
-    -- Флаги для совместимости с твоими функциями
-    skipDungeonQuest = false,
-    skipEggQuest = false,
-    skipBossQuest = false
-}
-
--- ============================================
--- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (HELPERS)
+-- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 -- ============================================
 function getBossData()
     local gameplay = workspace:FindFirstChild("Gameplay")
@@ -74,10 +74,10 @@ pcall(function()
 end)
 
 -- ============================================
--- 4. ФОНОВЫЕ ЦИКЛЫ
+-- 4. ФОНОВЫЕ ЦИКЛЫ (ВКЛЮЧАЮТСЯ КНОПКАМИ)
 -- ============================================
 
--- Авто-взмахи
+-- Взмахи
 task.spawn(function()
     local clientTool = require(lp.PlayerScripts.MainClient.ClientTool)
     while true do
@@ -91,7 +91,7 @@ task.spawn(function()
     end
 end)
 
--- Авто-продажа
+-- Продажа
 task.spawn(function()
     while true do
         if getgenv().SaberConfig.AutoSell then
@@ -121,38 +121,67 @@ task.spawn(function()
     end
 end)
 
--- Анти-АФК (фикс вылетов)
+-- Анти-АФК
 lp.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new(0,0))
 end)
 
 -- ============================================
--- 5. ЛОГИКА КВЕСТОВ И ДАНЖЕЙ (ТВОИ ФУНКЦИИ)
+-- 5. ТВОЯ ОЧИЩЕННАЯ ЛОГИКА (КВЕСТЫ И ДАНЖИ)
 -- ============================================
 
--- ВСТАВЬ СВОЮ ФУНКЦИЮ startAutoQuestLoop СЮДА (если она большая)
--- Убедись, что внутри неё ты заменил 'getgenv().autoQuestExecute' на 'getgenv().SaberConfig.AutoQuest'
-
+-- Функция авто-входа в данж
 function autoJoinDungeon()
     pcall(function()
-        local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
-        local timeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
-        if timeManager:Now() >= (dataManager.Data.DungeonCooldownEndDT or 0) then
-            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", getgenv().SaberConfig.SelectedDungeon, getgenv().SaberConfig.SelectedDifficulty)
-            task.wait(1.5)
-            ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
+        local dungeonStorage = workspace:FindFirstChild("DungeonStorage")
+        local isInDungeon = false
+        if dungeonStorage then
+            for _, folder in pairs(dungeonStorage:GetChildren()) do
+                if #folder:GetChildren() > 0 then isInDungeon = true; break end
+            end
+        end
+        if not isInDungeon then
+            local dataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+            local dateTimeManager = require(lp.PlayerScripts.MainClient.DateTimeManager)
+            if dateTimeManager:Now() >= (dataManager.Data.DungeonCooldownEndDT or 0) then
+                ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Create", "Public", getgenv().SaberConfig.SelectedDungeon, getgenv().SaberConfig.SelectedDifficulty)
+                task.wait(1.5)
+                ReplicatedStorage.Events.UIAction:FireServer("DungeonGroupAction", "Start")
+            end
         end
     end)
 end
 
+-- Функция цикла квестов (Очищена)
+function startAutoQuestLoop()
+    while getgenv().SaberConfig.AutoQuest do
+        pcall(function()
+            local ClientDataManager = require(lp.PlayerScripts.MainClient.ClientDataManager)
+            local QuestInfo = require(ReplicatedStorage.Modules.QuestInfo)
+            local quests = ClientDataManager.Data and ClientDataManager.Data.ClanQuests
+            if not quests then return end
+
+            for questIndex, q in pairs(quests) do
+                local cfg = QuestInfo.ClanQuests[q.Id]
+                if cfg and q.Amount >= cfg.GoalAmount then
+                    ReplicatedStorage.Events.UIAction:FireServer("ClaimClanQuest", questIndex)
+                    task.wait(1)
+                end
+            end
+            -- Тут будет логика фарма (BossWalk, EggFarm и т.д.)
+        end)
+        task.wait(1)
+    end
+end
+
 -- ============================================
--- 6. ИНТЕРФЕЙС (RAYFIELD GUI)
+-- 6. ИНТЕРФЕЙС (GUI)
 -- ============================================
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
    Name = "Saber Simulator | Ultra Hub",
-   LoadingTitle = "Загрузка с GitHub...",
+   LoadingTitle = "Скрипт загружен!",
    ConfigurationSaving = { Enabled = true, FolderName = "SaberConfig" },
    KeySystem = false
 })
@@ -161,7 +190,7 @@ local TabMain = Window:CreateTab("🏠 Главное", 4483362458)
 local TabFarm = Window:CreateTab("⚔️ Фарм", 4483362458)
 local TabDungeon = Window:CreateTab("🏰 Данжи", 4483362458)
 
--- ГЛАВНОЕ
+-- ВКЛАДКА: ГЛАВНОЕ
 TabMain:CreateSection("Автоматизация")
 TabMain:CreateToggle({
    Name = "Авто-Взмахи",
@@ -179,19 +208,19 @@ TabMain:CreateToggle({
    Callback = function(v) getgenv().SaberConfig.AutoCrowns = v end,
 })
 
--- КВЕСТЫ
+-- ВКЛАДКА: КВЕСТЫ
 TabFarm:CreateSection("Клановые квесты")
 TabFarm:CreateToggle({
    Name = "ВЫПОЛНЯТЬ ВСЕ КВЕСТЫ",
    CurrentValue = false,
    Callback = function(v) 
       getgenv().SaberConfig.AutoQuest = v 
-      if v and startAutoQuestLoop then task.spawn(startAutoQuestLoop) end
+      if v then task.spawn(startAutoQuestLoop) end
    end,
 })
 
--- ДАНЖИ
-TabDungeon:CreateSection("Настройки")
+-- ВКЛАДКА: ДАНЖИ
+TabDungeon:CreateSection("Данж Настройки")
 TabDungeon:CreateDropdown({
    Name = "Сложность",
    Options = {"1 (Easy)", "2 (Medium)", "3 (Hard)", "4 (Impossible)"},
@@ -199,19 +228,24 @@ TabDungeon:CreateDropdown({
    Callback = function(opt) getgenv().SaberConfig.SelectedDifficulty = tonumber(opt[1]:sub(1,1)) end,
 })
 TabDungeon:CreateToggle({
-   Name = "Авто-Данж (Вход + Фарм)",
+   Name = "Авто-Данж (Вход + Цикл)",
    CurrentValue = false,
    Callback = function(v) 
       getgenv().SaberConfig.DungeonActive = v 
       if v then 
          task.spawn(function()
             while getgenv().SaberConfig.DungeonActive do
-                autoJoinDungeon()
-                task.wait(10)
+               autoJoinDungeon()
+               task.wait(10)
             end
          end)
       end
    end,
 })
 
-Rayfield:Notify({ Title = "Hub Loaded!", Content = "Приятной игры!", Duration = 5 })
+Rayfield:Notify({
+   Title = "Успешно!",
+   Content = "Hub готов к использованию",
+   Duration = 5,
+   Image = 4483362458,
+})
